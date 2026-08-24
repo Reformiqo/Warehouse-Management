@@ -1,10 +1,11 @@
 import frappe
 from erpnext.stock.report.batch_wise_balance_history.batch_wise_balance_history import (
-	execute as run_batch_wise_balance,
+	get_item_warehouse_batch_map,
 )
 from erpnext.stock.report.stock_balance.stock_balance import execute as run_stock_balance
 
 from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES, get_cached_stats
+from warehouse_management.utils import get_open_order_counts, get_pending_sales_orders
 from warehouse_management.utils.response import error, success
 
 
@@ -15,8 +16,8 @@ def item_enquiry():
 	"""
 	try:
 		stock_by_item = _get_stock_by_item()
-		open_so = _open_order_counts("Sales Order Item", "Sales Order", OPEN_SO_STATUSES)
-		open_po = _open_order_counts("Purchase Order Item", "Purchase Order", OPEN_PO_STATUSES)
+		open_so = get_open_order_counts("Sales Order Item", "Sales Order", OPEN_SO_STATUSES)
+		open_po = get_open_order_counts("Purchase Order Item", "Purchase Order", OPEN_PO_STATUSES)
 
 		items = []
 		for item in frappe.get_all("Item", fields=["item_code", "item_name", "item_group"]):
@@ -50,14 +51,14 @@ def item_detail(item_code=None):
 		item_code = frappe.utils.strip(frappe.utils.cstr(item_code))
 		if not item_code:
 			return error("Please provide an item_code.", 400)
+
 		if not frappe.db.exists("Item", item_code):
 			return error(f"Item '{item_code}' not found.", 404)
 
 		return success(
 			data={
-				"item_code": item_code,
-				"warehouse_details": _get_warehouse_details(item_code),
-				"pending_sales_orders": _get_pending_sales_orders(item_code),
+				"warehouse_wise_stock": _get_warehouse_details(item_code),
+				"pending_sales_orders": get_pending_sales_orders(item_code, OPEN_SO_STATUSES),
 				"recent_movement": _get_recent_movement(item_code),
 			}
 		)
@@ -81,73 +82,47 @@ def _get_stock_by_item():
 		stock = stock_by_item.setdefault(row["item_code"], {"warehouse_count": 0, "balance_qty": 0})
 		stock["warehouse_count"] += 1
 		stock["balance_qty"] += row.get("bal_qty") or 0
+
 	return stock_by_item
 
 
 def _get_warehouse_details(item_code):
-	"""[{warehouse, batch, qty}, ...] from today's Batch-Wise Balance
-	History report, filtered to one item.
+	"""[{warehouse, batch, qty}, ...] for one item, today only.
+
+	get_item_warehouse_batch_map() is the Batch-Wise Balance History
+	report's own internal helper — it already returns
+	{item: {warehouse: {batch: {bal_qty, ...}}}} before the report
+	flattens that into rows for its grid UI, so we read it directly
+	instead of running the report and re-parsing its output rows.
 	"""
 	today = frappe.utils.today()
 	company = frappe.db.get_single_value("Global Defaults", "default_company")
 	filters = frappe._dict(
 		{"company": company, "from_date": today, "to_date": today, "item_code": item_code}
 	)
-	_columns, data = run_batch_wise_balance(filters)
 
-	# Row order: item, item_name, description, warehouse, batch,
-	# opening_qty, in_qty, out_qty, bal_qty, valuation_rate, bal_value, uom
-	return [{"warehouse": row[3], "batch": row[4], "qty": row[8]} for row in data]
+	float_precision = frappe.utils.cint(frappe.db.get_default("float_precision")) or 3
+	warehouse_batch_map = get_item_warehouse_batch_map(filters, float_precision)
 
+	details = []
+	for warehouse, batches in warehouse_batch_map.get(item_code, {}).items():
+		for batch, qty_dict in batches.items():
+			if not qty_dict.bal_qty:
+				continue
 
-def _get_pending_sales_orders(item_code):
-	"""[{customer, qty, so_name, so_date}, ...] for Sales Orders with an
-	open status (see OPEN_SO_STATUSES) referencing this item.
-	"""
-	rows = frappe.db.sql(
-		"""
-		SELECT order_doc.customer, item_row.qty,
-		       order_doc.name AS so_name, order_doc.transaction_date AS so_date
-		FROM `tabSales Order Item` item_row
-		INNER JOIN `tabSales Order` order_doc ON order_doc.name = item_row.parent
-		WHERE order_doc.status IN %(statuses)s AND item_row.item_code = %(item_code)s
-		""",
-		{"statuses": tuple(OPEN_SO_STATUSES), "item_code": item_code},
-		as_dict=True,
-	)
-	return [
-		{
-			"customer": row.customer,
-			"qty": row.qty,
-			"so_name": row.so_name,
-			"so_date": str(row.so_date) if row.so_date else None,
-		}
-		for row in rows
-	]
+			details.append({"warehouse": warehouse, "batch": batch, "qty": qty_dict.bal_qty})
+
+	return details
 
 
 def _get_recent_movement(item_code):
-	"""The 5 most recent Stock Ledger Entry rows for one item."""
+	"""The caller's 5 most recent Stock Ledger Entry rows for one item."""
 	return frappe.get_all(
 		"Stock Ledger Entry",
-		filters={"item_code": item_code, "is_cancelled": 0},
+		filters={"item_code": item_code, "is_cancelled": 0, "owner": frappe.session.user},
 		fields=["voucher_type", "voucher_no", "warehouse"],
 		order_by="posting_datetime desc, creation desc",
 		limit=5,
 	)
 
 
-def _open_order_counts(child_doctype, parent_doctype, statuses):
-	"""{item_code: distinct parent-document count} for the given statuses."""
-	rows = frappe.db.sql(
-		f"""
-		SELECT item_row.item_code, COUNT(DISTINCT item_row.parent) AS cnt
-		FROM `tab{child_doctype}` item_row
-		INNER JOIN `tab{parent_doctype}` order_doc ON order_doc.name = item_row.parent
-		WHERE order_doc.status IN %(statuses)s
-		GROUP BY item_row.item_code
-		""",
-		{"statuses": tuple(statuses)},
-		as_dict=True,
-	)
-	return {row.item_code: row.cnt for row in rows}
