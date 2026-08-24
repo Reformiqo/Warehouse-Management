@@ -138,13 +138,17 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Item": {
+		"after_insert": "warehouse_management.api.profile.invalidate_stats_cache",
+	},
+	"Warehouse": {
+		"after_insert": "warehouse_management.api.profile.invalidate_stats_cache",
+	},
+	"Stock Reconciliation": {
+		"on_submit": "warehouse_management.api.profile.mark_warehouse_reconciled",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
@@ -166,6 +170,11 @@ app_license = "mit"
 # 		"warehouse_management.tasks.monthly"
 # 	],
 # }
+
+# Migration Hooks
+# ---------------
+
+after_migrate = ["warehouse_management.setup.custom_fields.create_fields"]
 
 # Testing
 # -------
