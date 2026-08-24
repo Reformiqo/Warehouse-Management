@@ -32,7 +32,7 @@ def profile():
 			data={
 				"full_name": full_name,
 				"email": user,
-				**_get_cached_stats(),
+				**get_cached_stats(),
 				"open_po": frappe.db.count("Purchase Order", {"status": ["in", OPEN_PO_STATUSES]}),
 				"open_so": frappe.db.count("Sales Order", {"status": ["in", OPEN_SO_STATUSES]}),
 				"initial_reconciliation": _all_leaf_warehouses_reconciled(),
@@ -43,7 +43,7 @@ def profile():
 		return error(str(e), 500)
 
 
-def _get_cached_stats():
+def get_cached_stats():
 	"""Item/warehouse counts, cached for 5 minutes and cleared by
 	hooks.py the moment an Item or Warehouse is created.
 	"""

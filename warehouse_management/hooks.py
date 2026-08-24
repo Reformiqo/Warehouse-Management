@@ -174,7 +174,10 @@ doc_events = {
 # Migration Hooks
 # ---------------
 
-after_migrate = ["warehouse_management.setup.custom_fields.create_fields"]
+after_migrate = [
+	"warehouse_management.setup.custom_fields.create_fields",
+	"warehouse_management.setup.property_setters.create_property_setters",
+]
 
 # Testing
 # -------

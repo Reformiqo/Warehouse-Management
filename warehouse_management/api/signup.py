@@ -1,8 +1,11 @@
-"""Signup — creates a Frappe User with the Stock Manager role.
+"""Signup — creates a Frappe User and linked Employee with the Stock
+Manager role.
 
-Inputs are sanitized before use. `ignore_permissions=True` covers the
-insert on its own, so no Administrator switch is needed for the Guest
-session this `allow_guest` endpoint runs under.
+Inputs are sanitized before use. `ignore_permissions=True` covers both
+inserts. Employee.create_user_permission is turned off so setting
+user_id directly doesn't trigger ERPNext's add_user_permission(), which
+does its own insert() checked against the session user and isn't
+covered by ignore_permissions on the Employee insert itself.
 """
 
 import frappe
@@ -27,6 +30,7 @@ def signup(full_name=None, email=None, password=None):
 			return validation_error
 
 		user = _create_user(full_name, email, password)
+		_create_employee(full_name, email, user)
 		api_key, api_secret = generate_api_keys(user)
 		frappe.db.commit()
 
@@ -86,6 +90,31 @@ def _create_user(full_name, email, password):
 	user.flags.no_welcome_mail = True
 	user.insert(ignore_permissions=True)
 	return user.name
+
+
+def _create_employee(full_name, email, user):
+	"""gender/date_of_birth/date_of_joining are non-mandatory via property
+	setter (see setup/property_setters.py) since signup collects none of
+	them. create_user_permission is turned off so setting user_id doesn't
+	trigger ERPNext's add_user_permission(), which does its own insert()
+	checked against the session user and fails for this endpoint's Guest
+	session.
+	"""
+	first_name, middle_name, last_name = _split_name(full_name)
+	emp = frappe.new_doc("Employee")
+	emp.first_name = first_name
+	emp.middle_name = middle_name
+	emp.last_name = last_name
+	emp.employee_name = full_name
+	emp.company = frappe.db.get_single_value("Global Defaults", "default_company")
+	emp.date_of_joining = frappe.utils.today()
+	emp.status = "Active"
+	emp.personal_email = email
+	emp.user_id = user
+	emp.create_user_permission = 0
+	emp.flags.ignore_permissions = True
+	emp.insert(ignore_permissions=True)
+	return emp.name
 
 
 def _split_name(full_name):
