@@ -9,11 +9,13 @@ they're queried live on each call instead.
 """
 
 import frappe
+from frappe.utils import flt
 
 from warehouse_management.utils.response import error, success
 
 STATS_CACHE_KEY = "warehouse_management:profile_stats"
-STATS_CACHE_SECONDS = 300
+
+TEAM_STATUS_ROLE = "System Manager"
 
 OPEN_PO_STATUSES = ["To Receive and Bill", "To Receive"]
 OPEN_SO_STATUSES = ["To Deliver and Bill", "To Deliver"]
@@ -36,7 +38,7 @@ def profile():
 				"open_po": frappe.db.count("Purchase Order", {"status": ["in", OPEN_PO_STATUSES]}),
 				"open_so": frappe.db.count("Sales Order", {"status": ["in", OPEN_SO_STATUSES]}),
 				"initial_reconciliation": _all_leaf_warehouses_reconciled(),
-				"daily_reconciliation": _daily_reconciliation_done(user),
+				"daily_reconciliation": _daily_reconciliation_status(user),
 			}
 		)
 	except Exception as e:
@@ -47,9 +49,14 @@ def profile():
 @frappe.whitelist(methods=["GET"])
 def team_status():
 	"""Return today's warehouse assignments: who is on which warehouse,
-	how many tasks they have, and whether they are done. No input required.
+	how many tasks they have, and whether they are done. No input
+	required. Not being allowed to see the team is a normal state, not
+	an error, so it comes back as permitted=False rather than a 403.
 	"""
 	try:
+		if TEAM_STATUS_ROLE not in frappe.get_roles():
+			return success(data=[], permitted=False)
+
 		rows = frappe.db.sql(
 			"""
 			SELECT
@@ -69,7 +76,7 @@ def team_status():
 			{"today": frappe.utils.today()},
 			as_dict=True,
 		)
-		return success(data=rows)
+		return success(data=rows, permitted=True)
 	except Exception as e:
 		frappe.log_error(title="Team status lookup failed", message=frappe.get_traceback())
 		return error(str(e), 500)
@@ -87,7 +94,7 @@ def get_cached_stats():
 		"total_items": frappe.db.count("Item"),
 		"total_warehouse": frappe.db.count("Warehouse"),
 	}
-	frappe.cache.set_value(STATS_CACHE_KEY, stats, expires_in_sec=STATS_CACHE_SECONDS)
+	frappe.cache.set_value(STATS_CACHE_KEY, stats)
 	return stats
 
 
@@ -98,34 +105,65 @@ def invalidate_stats_cache(doc=None, method=None):
 
 def mark_warehouse_reconciled(doc, method=None):
 	"""hooks.py doc_events target for Stock Reconciliation on_submit.
-	Flags every warehouse in this reconciliation's items as done.
+	initial_reconciliation is set once per warehouse, so the filter
+	skips already-flagged ones instead of rewriting them every submit.
 	"""
-	warehouses = {row.warehouse for row in doc.items if row.warehouse}
-	for warehouse in warehouses:
-		frappe.db.set_value("Warehouse", warehouse, "initial_reconciliation", 1)
+	warehouses = list({row.warehouse for row in doc.items if row.warehouse})
+	if not warehouses:
+		return
+
+	frappe.db.set_value(
+		"Warehouse",
+		{"name": ["in", warehouses], "initial_reconciliation": 0},
+		"initial_reconciliation",
+		1,
+	)
 
 
-def _daily_reconciliation_done(user):
-	"""True when this user's employee has no incomplete tasks in today's
-	Warehouse Daily Assignment — including when nothing was assigned.
+def _daily_reconciliation_status(user):
+	"""Today's Warehouse Daily Assignment progress for this user's
+	employee: task counts, percentage done, and a rollup status. None
+	when nothing is assigned, so the client can tell that apart from an
+	assignment that just has no progress yet.
 	"""
 	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
 	if not employee:
-		return True
+		return None
 
-	pending = frappe.db.sql(
+	rows = frappe.db.sql(
 		"""
-		SELECT 1
+		SELECT
+			assignment.total_tasks,
+			COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
+				AS completed_tasks
 		FROM `tabWarehouse Daily Assignment` assignment
-		INNER JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
+		LEFT JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
 		WHERE assignment.employee = %(employee)s
 		  AND assignment.assignment_date = %(today)s
-		  AND task.is_completed = 0
-		LIMIT 1
+		GROUP BY assignment.name
 		""",
 		{"employee": employee, "today": frappe.utils.today()},
+		as_dict=True,
 	)
-	return not pending
+	if not rows:
+		return None
+
+	total_tasks = rows[0].total_tasks or 0
+	completed_tasks = rows[0].completed_tasks or 0
+
+	if not completed_tasks:
+		status = "Not Started"
+	elif completed_tasks < total_tasks:
+		status = "In Progress"
+	else:
+		status = "Completed"
+
+	return {
+		"status": status,
+		"percentage": flt(completed_tasks / total_tasks * 100, 2) if total_tasks else 0.0,
+		"total_tasks": total_tasks,
+		"completed_tasks": completed_tasks,
+	}
 
 
 def _all_leaf_warehouses_reconciled():
