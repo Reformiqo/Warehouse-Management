@@ -7,7 +7,8 @@
  "field_order": [
   "reference_doctype",
   "reference_name",
-  "item_code"
+  "item_code",
+  "is_completed"
  ],
  "fields": [
   {
@@ -33,6 +34,13 @@
    "label": "Item Code",
    "options": "Item",
    "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_completed",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Completed"
   }
  ],
  "grid_page_length": 50,

@@ -36,10 +36,42 @@ def profile():
 				"open_po": frappe.db.count("Purchase Order", {"status": ["in", OPEN_PO_STATUSES]}),
 				"open_so": frappe.db.count("Sales Order", {"status": ["in", OPEN_SO_STATUSES]}),
 				"initial_reconciliation": _all_leaf_warehouses_reconciled(),
+				"daily_reconciliation": _daily_reconciliation_done(user),
 			}
 		)
 	except Exception as e:
 		frappe.log_error(title="Warehouse profile failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["GET"])
+def team_status():
+	"""Return today's warehouse assignments: who is on which warehouse,
+	how many tasks they have, and whether they are done. No input required.
+	"""
+	try:
+		rows = frappe.db.sql(
+			"""
+			SELECT
+				assignment.employee AS emp_id,
+				employee.employee_name AS emp_name,
+				employee.designation,
+				assignment.total_tasks,
+				COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
+					AS completed_tasks
+			FROM `tabWarehouse Daily Assignment` assignment
+			INNER JOIN `tabEmployee` employee ON employee.name = assignment.employee
+			LEFT JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
+			WHERE assignment.assignment_date = %(today)s
+			GROUP BY assignment.name
+			ORDER BY employee.employee_name
+			""",
+			{"today": frappe.utils.today()},
+			as_dict=True,
+		)
+		return success(data=rows)
+	except Exception as e:
+		frappe.log_error(title="Team status lookup failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
 
@@ -71,6 +103,29 @@ def mark_warehouse_reconciled(doc, method=None):
 	warehouses = {row.warehouse for row in doc.items if row.warehouse}
 	for warehouse in warehouses:
 		frappe.db.set_value("Warehouse", warehouse, "initial_reconciliation", 1)
+
+
+def _daily_reconciliation_done(user):
+	"""True when this user's employee has no incomplete tasks in today's
+	Warehouse Daily Assignment — including when nothing was assigned.
+	"""
+	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
+	if not employee:
+		return True
+
+	pending = frappe.db.sql(
+		"""
+		SELECT 1
+		FROM `tabWarehouse Daily Assignment` assignment
+		INNER JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
+		WHERE assignment.employee = %(employee)s
+		  AND assignment.assignment_date = %(today)s
+		  AND task.is_completed = 0
+		LIMIT 1
+		""",
+		{"employee": employee, "today": frappe.utils.today()},
+	)
+	return not pending
 
 
 def _all_leaf_warehouses_reconciled():
