@@ -1,5 +1,5 @@
-"""Signup — creates a Frappe User and linked Employee with the Stock
-Manager role.
+"""Signup — creates a Frappe User and linked Employee with the roles in
+SIGNUP_ROLES.
 
 Inputs are sanitized before use. `ignore_permissions=True` covers both
 inserts. Employee.create_user_permission is turned off so setting
@@ -13,7 +13,7 @@ import frappe
 from warehouse_management.utils import generate_api_keys
 from warehouse_management.utils.response import error, success
 
-SIGNUP_ROLE = "Stock Manager"
+SIGNUP_ROLES = ["Stock Manager", "Purchase User"]
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -85,7 +85,7 @@ def _create_user(full_name, email, password):
 	user.enabled = 1
 	user.send_welcome_email = 0
 	user.new_password = password
-	user.append_roles(SIGNUP_ROLE)
+	user.append_roles(*SIGNUP_ROLES)
 	user.flags.ignore_permissions = True
 	user.flags.no_welcome_mail = True
 	user.insert(ignore_permissions=True)

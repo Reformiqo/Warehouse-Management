@@ -148,6 +148,18 @@ doc_events = {
 	"Stock Reconciliation": {
 		"on_submit": "warehouse_management.api.profile.mark_warehouse_reconciled",
 	},
+	"Purchase Receipt": {
+		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+	},
+	"Delivery Note": {
+		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+	},
+	"Pick List": {
+		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+	},
+	"Stock Entry": {
+		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+	},
 }
 
 # Scheduled Tasks

@@ -1,6 +1,13 @@
 import frappe
 
 
+def stamp_submitted_at(doc, method=None):
+	"""hooks.py doc_events target for on_submit. update_modified=False so
+	stamping doesn't bump modified and reorder anything keyed off it.
+	"""
+	doc.db_set("submitted_at", frappe.utils.now(), update_modified=False)
+
+
 def generate_api_keys(user_name):
 	"""Create or rotate a User's API key/secret. `ignore_permissions=True`
 	covers the save, so no Administrator switch is needed.

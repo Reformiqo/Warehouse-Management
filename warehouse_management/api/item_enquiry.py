@@ -3,24 +3,46 @@ from erpnext.stock.report.batch_wise_balance_history.batch_wise_balance_history 
 	get_item_warehouse_batch_map,
 )
 from erpnext.stock.report.stock_balance.stock_balance import execute as run_stock_balance
+from frappe.utils import cint
 
 from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES, get_cached_stats
 from warehouse_management.utils import get_open_order_counts, get_pending_sales_orders
 from warehouse_management.utils.response import error, success
 
+DEFAULT_LIMIT = 20
+
 
 @frappe.whitelist(methods=["GET"])
-def item_enquiry():
-	"""Return every item with today's stock spread plus open PO/SO
-	linkage. No input required.
+def item_enquiry(search=None, limit=None, offset=None):
+	"""Return items with today's stock spread plus open PO/SO linkage.
+
+	Query params, all optional: `search` (matches item name), `limit`
+	(default 20) and `offset` (rows to skip, default 0). total_item is
+	the count matching `search`, so the client can page through it.
 	"""
 	try:
+		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
+		filters = {"item_name": ["like", f"%{search}%"]} if search else {}
+		total_item = frappe.db.count("Item", filters) if search else get_cached_stats()["total_items"]
+
 		stock_by_item = _get_stock_by_item()
 		open_so = get_open_order_counts("Sales Order Item", "Sales Order", OPEN_SO_STATUSES)
 		open_po = get_open_order_counts("Purchase Order Item", "Purchase Order", OPEN_PO_STATUSES)
 
+		page = frappe.get_all(
+			"Item",
+			filters=filters,
+			fields=["item_code", "item_name", "item_group"],
+			order_by="item_name",
+			limit_start=offset,
+			limit_page_length=limit,
+		)
+
 		items = []
-		for item in frappe.get_all("Item", fields=["item_code", "item_name", "item_group"]):
+		for item in page:
 			stock = stock_by_item.get(item.item_code, {"warehouse_count": 0, "balance_qty": 0})
 			items.append(
 				{
@@ -34,7 +56,7 @@ def item_enquiry():
 				}
 			)
 
-		return success(data={"total_item": get_cached_stats()["total_items"], "items": items})
+		return success(data={"total_item": total_item, "items": items})
 	except Exception as e:
 		frappe.log_error(title="Warehouse item enquiry failed", message=frappe.get_traceback())
 		return error(str(e), 500)

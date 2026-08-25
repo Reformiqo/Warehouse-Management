@@ -1,15 +1,21 @@
 import frappe
 from erpnext.stock.report.stock_balance.stock_balance import execute as run_stock_balance
+from frappe.utils import cint
 
 from warehouse_management.utils.response import error, success
 
+DEFAULT_LIMIT = 20
+
 
 @frappe.whitelist(methods=["GET"])
-def warehouse_enquiry(warehouse=None):
+def warehouse_enquiry(warehouse=None, search=None, limit=None, offset=None):
 	"""Return unique item count, total quantity, and per-item balance for
 	one warehouse, based on today's Stock Balance report.
 
-	Query param: `warehouse` (required).
+	Query params: `warehouse` (required); `search` (matches item name),
+	`limit` (default 20) and `offset` (rows to skip, default 0) optional.
+	unique_items/total_quantity describe the searched set, so they stay
+	consistent with the paged items list.
 	"""
 	try:
 		warehouse = frappe.utils.strip(frappe.utils.cstr(warehouse))
@@ -19,7 +25,15 @@ def warehouse_enquiry(warehouse=None):
 		if not frappe.db.exists("Warehouse", warehouse):
 			return error(f"Warehouse '{warehouse}' not found.", 404)
 
+		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
 		items = _get_items_in_warehouse(warehouse)
+		if search:
+			needle = search.lower()
+			items = [item for item in items if needle in (item["item_name"] or "").lower()]
+
 		total_quantity = sum(item["balance_qty"] for item in items)
 
 		return success(
@@ -29,7 +43,7 @@ def warehouse_enquiry(warehouse=None):
 				"total_quantity": total_quantity,
 				"last_inward": _last_submitted_date("Purchase Receipt Item", "Purchase Receipt", warehouse) or "",
 				"last_outward": _last_submitted_date("Delivery Note Item", "Delivery Note", warehouse) or "",
-				"items": items,
+				"items": items[offset : offset + limit],
 			}
 		)
 	except Exception as e:

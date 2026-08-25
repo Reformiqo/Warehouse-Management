@@ -82,6 +82,32 @@ def team_status():
 		return error(str(e), 500)
 
 
+@frappe.whitelist(methods=["POST"])
+def update_profile(mpin=None):
+	"""Update the calling user's profile. Body: `{mpin}`.
+
+	mpin is a Password field, so it must go through doc.save() —
+	db.set_value would write only the unused plain column and leave the
+	encrypted value in __Auth untouched.
+	"""
+	try:
+		mpin = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(mpin)))
+		if not mpin:
+			return error("Please provide an mpin.", 400)
+
+		user_doc = frappe.get_doc("User", frappe.session.user)
+		user_doc.mpin = mpin
+		user_doc.flags.ignore_permissions = True
+		user_doc.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		return success(data={"message": "Profile updated."})
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(title="Warehouse profile update failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
 def get_cached_stats():
 	"""Item/warehouse counts, cached for 5 minutes and cleared by
 	hooks.py the moment an Item or Warehouse is created.

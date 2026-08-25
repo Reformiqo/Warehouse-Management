@@ -8,19 +8,23 @@ DEFAULT_LIMIT = 20
 
 
 @frappe.whitelist(methods=["GET"])
-def get_purchase_orders(from_date=None, to_date=None, item_code=None, supplier_name=None, limit=None):
+def get_purchase_orders(
+	from_date=None, to_date=None, item_code=None, supplier_name=None, limit=None, offset=None
+):
 	"""Return open Purchase Orders (To Receive and Bill / To Receive),
 	optionally narrowed by posting date range, item, and/or supplier.
 
 	Query params, all optional: `from_date`, `to_date`, `item_code`,
-	`supplier_name`, `limit` (default 20).
+	`supplier_name`, `limit` (default 20), `offset` (rows to skip,
+	default 0). total_count ignores limit/offset, so it drives paging.
 	"""
 	try:
 		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
 
 		po_names = _matching_po_names(from_date, to_date, item_code, supplier_name)
 		total_count = len(po_names)
-		page = po_names[:limit]
+		page = po_names[offset : offset + limit]
 
 		purchase_orders = _build_purchase_orders(page)
 
@@ -53,6 +57,33 @@ def purchase_order_detail(po_id=None):
 		)
 	except Exception as e:
 		frappe.log_error(title="Purchase order detail failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["GET"])
+def item_stock(item_code=None):
+	"""Return every warehouse currently holding this item, with its
+	balance qty. Read from Bin so it covers non batch-tracked items.
+
+	Query param: `item_code` (required).
+	"""
+	try:
+		item_code = frappe.utils.strip(frappe.utils.cstr(item_code))
+		if not item_code:
+			return error("Please provide an item_code.", 400)
+
+		if not frappe.db.exists("Item", item_code):
+			return error(f"Item '{item_code}' not found.", 404)
+
+		rows = frappe.get_all(
+			"Bin",
+			filters={"item_code": item_code, "actual_qty": ["!=", 0]},
+			fields=["warehouse", "actual_qty as balance_qty"],
+			order_by="warehouse",
+		)
+		return success(data=rows, total_balance_qty=sum(row.balance_qty for row in rows))
+	except Exception as e:
+		frappe.log_error(title="Item stock lookup failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
 
@@ -117,17 +148,16 @@ def _matching_po_names(from_date, to_date, item_code, supplier_name):
 
 
 def _build_purchase_orders(po_names):
-	"""[{po_id, supplier_name, posting_date, items}, ...] for the given
-	Purchase Order names — one joined query, grouped in Python.
+	"""[{po_id, supplier_name, posting_date, item_codes}, ...] for the
+	given Purchase Order names — one joined query, grouped in Python.
 	"""
 	if not po_names:
 		return []
 
 	rows = frappe.db.sql(
 		"""
-		SELECT purchase_order.name AS po_id, purchase_order.supplier_name,
-		       purchase_order.transaction_date AS posting_date,
-		       po_item.item_code, po_item.item_name, po_item.qty
+		SELECT DISTINCT purchase_order.name AS po_id, purchase_order.supplier_name,
+		       purchase_order.transaction_date AS posting_date, po_item.item_code
 		FROM `tabPurchase Order` purchase_order
 		INNER JOIN `tabPurchase Order Item` po_item ON po_item.parent = purchase_order.name
 		WHERE purchase_order.name IN %(names)s
@@ -146,10 +176,10 @@ def _build_purchase_orders(po_names):
 				"po_id": row.po_id,
 				"supplier_name": row.supplier_name,
 				"posting_date": str(row.posting_date) if row.posting_date else None,
-				"items": [],
+				"item_codes": [],
 			}
 			orders_by_id[row.po_id] = order
 			order_sequence.append(row.po_id)
-		order["items"].append({"item_code": row.item_code, "item_name": row.item_name, "qty": row.qty})
+		order["item_codes"].append(row.item_code)
 
 	return [orders_by_id[po_id] for po_id in order_sequence]
