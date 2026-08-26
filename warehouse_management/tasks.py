@@ -1,13 +1,14 @@
 import random
 
 import frappe
+from frappe.utils import flt
 
 
 def assign_daily_warehouses():
 	"""Nightly job (see hooks.py scheduler_events, cron 0 0 * * *): wipe
 	yesterday's Warehouse Daily Assignment rows and randomly assign one
-	active Employee to each warehouse that had stock movement the previous
-	day. zip() over a single shuffled employee list guarantees both
+	active Employee to each warehouse whose stock movement was entered the
+	previous day. zip() over a single shuffled employee list guarantees both
 	directions of uniqueness — one employee per warehouse, one warehouse
 	per employee.
 	"""
@@ -40,29 +41,33 @@ def assign_daily_warehouses():
 
 def _get_previous_day_tasks_by_warehouse():
 	"""{warehouse: [{reference_doctype, reference_name, item_code}, ...]}
-	from the previous day's non-cancelled Stock Ledger Entries, deduped
-	per (warehouse, voucher_type, voucher_no, item_code). The job runs at
-	midnight, so the movement to work through is the day that just ended.
+	from the non-cancelled Stock Ledger Entries submitted the previous day,
+	deduped per (warehouse, voucher_type, voucher_no, item_code). Anchored on
+	creation, not posting_date, so a backdated voucher can't land in a bucket
+	whose run already passed and end up assigned to nobody.
 	"""
+	yesterday = frappe.utils.add_days(frappe.utils.today(), -1)
 	rows = frappe.get_all(
 		"Stock Ledger Entry",
-		filters={"posting_date": frappe.utils.add_days(frappe.utils.today(), -1), "is_cancelled": 0},
-		fields=["warehouse", "voucher_type", "voucher_no", "item_code"],
+		filters={"creation": ["between", [yesterday, yesterday]], "is_cancelled": 0},
+		fields=["warehouse", "voucher_type", "voucher_no", "item_code", "actual_qty"],
 	)
 
-	seen = set()
+	tasks_by_key = {}
 	tasks_by_warehouse = {}
 	for row in rows:
 		key = (row.warehouse, row.voucher_type, row.voucher_no, row.item_code)
-		if key in seen:
-			continue
-
-		seen.add(key)
-		tasks_by_warehouse.setdefault(row.warehouse, []).append(
-			{
+		task = tasks_by_key.get(key)
+		if not task:
+			task = {
 				"reference_doctype": row.voucher_type,
 				"reference_name": row.voucher_no,
 				"item_code": row.item_code,
+				"qty": 0,
 			}
-		)
+			tasks_by_key[key] = task
+			tasks_by_warehouse.setdefault(row.warehouse, []).append(task)
+
+		task["qty"] += flt(row.actual_qty)
+
 	return tasks_by_warehouse

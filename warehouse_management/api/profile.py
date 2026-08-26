@@ -29,6 +29,7 @@ def profile():
 	try:
 		user = frappe.session.user
 		full_name = frappe.db.get_value("User", user, "full_name")
+		daily_reconciliation, has_task = _daily_reconciliation_status(user)
 
 		return success(
 			data={
@@ -38,8 +39,9 @@ def profile():
 				"open_po": frappe.db.count("Purchase Order", {"status": ["in", OPEN_PO_STATUSES]}),
 				"open_so": frappe.db.count("Sales Order", {"status": ["in", OPEN_SO_STATUSES]}),
 				"initial_reconciliation": _all_leaf_warehouses_reconciled(),
-				"daily_reconciliation": _daily_reconciliation_status(user),
-			}
+				"daily_reconciliation": daily_reconciliation,
+				"has_task": has_task,
+			},
 		)
 	except Exception as e:
 		frappe.log_error(title="Warehouse profile failed", message=frappe.get_traceback())
@@ -147,14 +149,15 @@ def mark_warehouse_reconciled(doc, method=None):
 
 
 def _daily_reconciliation_status(user):
-	"""Today's Warehouse Daily Assignment progress for this user's
-	employee: task counts, percentage done, and a rollup status. None
-	when nothing is assigned, so the client can tell that apart from an
-	assignment that just has no progress yet.
+	"""(progress, has_task) for today's Warehouse Daily Assignment.
+
+	has_task is False both when no Employee is linked to the user and
+	when the Employee has no assignment today — either way there is
+	nothing to work through, and progress comes back empty.
 	"""
 	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
 	if not employee:
-		return None
+		return {}, False
 
 	rows = frappe.db.sql(
 		"""
@@ -172,7 +175,7 @@ def _daily_reconciliation_status(user):
 		as_dict=True,
 	)
 	if not rows:
-		return None
+		return {}, False
 
 	total_tasks = rows[0].total_tasks or 0
 	completed_tasks = rows[0].completed_tasks or 0
@@ -189,7 +192,8 @@ def _daily_reconciliation_status(user):
 		"percentage": flt(completed_tasks / total_tasks * 100, 2) if total_tasks else 0.0,
 		"total_tasks": total_tasks,
 		"completed_tasks": completed_tasks,
-	}
+		"team_member": frappe.db.count("Warehouse Daily Assignment"),
+	}, True
 
 
 def _all_leaf_warehouses_reconciled():

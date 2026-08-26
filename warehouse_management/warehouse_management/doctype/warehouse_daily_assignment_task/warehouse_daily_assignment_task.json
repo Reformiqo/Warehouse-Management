@@ -8,6 +8,8 @@
   "reference_doctype",
   "reference_name",
   "item_code",
+  "qty",
+  "variation",
   "is_completed"
  ],
  "fields": [
@@ -34,6 +36,22 @@
    "label": "Item Code",
    "options": "Item",
    "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Qty this voucher moved for the item in this warehouse",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "variation",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Variation"
   },
   {
    "default": "0",

@@ -1,17 +1,25 @@
 import frappe
 from erpnext.selling.doctype.sales_order.sales_order import create_pick_list as map_pick_list_from_so
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from warehouse_management.api.profile import OPEN_SO_STATUSES
 from warehouse_management.utils.response import error, success
 
+DEFAULT_LIMIT = 20
+
 
 @frappe.whitelist(methods=["GET"])
-def open_so():
+def open_so(limit=None, offset=None):
 	"""Return open Sales Orders (To Deliver and Bill / To Deliver) that
-	still need picking. No input required.
+	still need picking.
+
+	Query params, both optional: `limit` (default 20) and `offset`
+	(rows to skip, default 0).
 	"""
 	try:
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
 		rows = frappe.db.sql(
 			"""
 			SELECT sales_order.name AS id, sales_order.customer,
@@ -21,13 +29,55 @@ def open_so():
 			WHERE sales_order.status IN %(statuses)s
 			GROUP BY sales_order.name
 			ORDER BY sales_order.transaction_date DESC
+			LIMIT %(limit)s OFFSET %(offset)s
 			""",
-			{"statuses": tuple(OPEN_SO_STATUSES)},
+			{"statuses": tuple(OPEN_SO_STATUSES), "limit": limit, "offset": offset},
 			as_dict=True,
 		)
 		return success(data=rows)
 	except Exception as e:
 		frappe.log_error(title="Pick list lookup failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["GET"])
+def so_pending_items(so_id=None):
+	"""Return the Sales Order lines still awaiting delivery, with ordered,
+	delivered and pending quantities.
+
+	Query param: `so_id` (required).
+	"""
+	try:
+		so_id = frappe.utils.strip(frappe.utils.cstr(so_id))
+		if not so_id:
+			return error("Please provide a so_id.", 400)
+
+		if not frappe.db.exists("Sales Order", so_id):
+			return error(f"Sales Order '{so_id}' not found.", 404)
+
+		rows = frappe.get_all(
+			"Sales Order Item",
+			filters={"parent": so_id},
+			fields=["item_code", "item_name", "warehouse", "qty", "delivered_qty"],
+			order_by="idx",
+		)
+
+		return success(
+			data=[
+				{
+					"item_code": row.item_code,
+					"item_name": row.item_name,
+					"warehouse": row.warehouse,
+					"total_qty": flt(row.qty),
+					"delivered_qty": flt(row.delivered_qty),
+					"pending_qty": flt(row.qty) - flt(row.delivered_qty),
+				}
+				for row in rows
+				if flt(row.delivered_qty) < flt(row.qty)
+			]
+		)
+	except Exception as e:
+		frappe.log_error(title="SO pending items lookup failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
 
@@ -57,11 +107,10 @@ def create_pick_list(so_id=None, items=None):
 			return error("None of the given items are pending on this Sales Order.", 400)
 
 		pick_list_doc.insert(ignore_permissions=True)
-		pick_list_doc.submit()
 		frappe.db.commit()
 
 		return success(
-			data={"pick_list_id": pick_list_doc.name, "message": "Pick list created."},
+			data={"pick_list_id": pick_list_doc.name, "message": "Pick list created in draft."},
 			http_status=201,
 		)
 	except Exception as e:
