@@ -4,7 +4,7 @@ authors = [
     { name = "Reformiqo", email = "consultant.reformiqo@gmail.com"}
 ]
 description = "Warehouse Management"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
