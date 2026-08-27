@@ -8,12 +8,14 @@ DEFAULT_LIMIT = 20
 
 @frappe.whitelist(methods=["GET"])
 def my_assignment(search=None, limit=None, offset=None):
-	"""Return today's Warehouse Daily Assignment for the caller's Employee:
-	the warehouse, progress rollup, and one task per item to reconcile.
+	"""Return today's Warehouse Daily Assignments for the caller's Employee:
+	a progress rollup and one task per item to reconcile. An employee can
+	hold one assignment per warehouse, so each task carries its own
+	assignment and warehouse rather than those sitting on the payload.
 
 	Query params, all optional: `search` (matches item code or name),
 	`limit` (default 20) and `offset` (rows to skip, default 0). The
-	progress counts describe the whole assignment, not the searched page.
+	progress counts describe every assignment, not the searched page.
 	"""
 	try:
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
@@ -24,20 +26,21 @@ def my_assignment(search=None, limit=None, offset=None):
 		if not employee:
 			return error("No Employee is linked to your user account.", 404)
 
-		assignment = frappe.db.get_value(
+		assignments = frappe.get_all(
 			"Warehouse Daily Assignment",
-			{"employee": employee, "assignment_date": frappe.utils.today()},
-			["name", "warehouse", "assignment_date", "total_tasks"],
-			as_dict=True,
+			filters={"employee": employee, "assignment_date": frappe.utils.today()},
+			fields=["name", "warehouse", "assignment_date", "total_tasks"],
+			order_by="warehouse",
 		)
-		if not assignment:
+		if not assignments:
 			return success(data={})
 
-		tasks = _get_tasks(assignment.name)
-		# rows are per reference, so progress counts distinct items to stay
-		# in step with total_tasks and with profile()
-		total_tasks = assignment.total_tasks or len({task["item_code"] for task in tasks})
-		completed_tasks = len({task["item_code"] for task in tasks if task["is_completed"]})
+		tasks = _get_tasks([assignment.name for assignment in assignments])
+		warehouses = {assignment.name: assignment.warehouse for assignment in assignments}
+		for task in tasks:
+			task["warehouse"] = warehouses.get(task["assignment_id"])
+
+		total_tasks, completed_tasks = _progress(assignments, tasks)
 
 		if search:
 			needle = search.lower()
@@ -49,8 +52,6 @@ def my_assignment(search=None, limit=None, offset=None):
 
 		return success(
 			data={
-				"assignment_id": assignment.name,
-				"warehouse": assignment.warehouse,
 				"total_tasks": total_tasks,
 				"completed_tasks": completed_tasks,
 				"tasks": tasks[offset : offset + limit],
@@ -103,24 +104,43 @@ def set_variation(assignment_id=None, task_id=None, variation=None):
 		return error(str(e), 500)
 
 
-def _get_tasks(assignment_name):
+def _get_tasks(assignment_names):
 	"""One row per task reference — the voucher that put the item on the
 	list — with the item's fields carried flat on each row rather than
 	nested, so an item on two vouchers comes back as two rows.
 	"""
+	if not assignment_names:
+		return []
+
 	return frappe.db.sql(
 		"""
-		SELECT task.name AS task_id, task.item_code, item.item_name,
+		SELECT task.parent AS assignment_id, task.name AS task_id,
+		       task.item_code, item.item_name,
 		       task.qty, task.variation, task.is_completed,
 		       task.reference_doctype, task.reference_name
 		FROM `tabWarehouse Daily Assignment Task` task
 		LEFT JOIN `tabItem` item ON item.name = task.item_code
-		WHERE task.parent = %(assignment)s
-		ORDER BY task.idx
+		WHERE task.parent IN %(assignments)s
+		ORDER BY task.parent, task.idx
 		""",
-		{"assignment": assignment_name},
+		{"assignments": tuple(assignment_names)},
 		as_dict=True,
 	)
+
+
+def _progress(assignments, tasks):
+	"""Rollup over every assignment. Rows are per reference, so items count
+	once per assignment — the same item in two warehouses is two tasks.
+	"""
+	total_tasks = 0
+	for assignment in assignments:
+		items = {task["item_code"] for task in tasks if task["assignment_id"] == assignment.name}
+		total_tasks += assignment.total_tasks or len(items)
+
+	completed_tasks = len(
+		{(task["assignment_id"], task["item_code"]) for task in tasks if task["is_completed"]}
+	)
+	return total_tasks, completed_tasks
 
 
 def _rollup_status(total_tasks, completed_tasks):

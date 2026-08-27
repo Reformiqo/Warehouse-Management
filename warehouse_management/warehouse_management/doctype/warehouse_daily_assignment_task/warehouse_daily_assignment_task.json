@@ -1,6 +1,6 @@
 {
  "actions": [],
- "creation": "2026-08-24 00:00:00.000000",
+ "creation": "2026-08-24 00:00:00",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -39,12 +39,11 @@
   },
   {
    "default": "0",
-   "description": "Qty this voucher moved for the item in this warehouse",
+   "description": "Stock in this warehouse when the task was assigned",
    "fieldname": "qty",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Qty",
-   "read_only": 1
+   "label": "Qty"
   },
   {
    "default": "0",
@@ -64,7 +63,7 @@
  "grid_page_length": 50,
  "istable": 1,
  "links": [],
- "modified": "2026-08-24 00:00:00.000000",
+ "modified": "2026-08-27 12:26:23.145079",
  "modified_by": "Administrator",
  "module": "Warehouse Management",
  "name": "Warehouse Daily Assignment Task",
