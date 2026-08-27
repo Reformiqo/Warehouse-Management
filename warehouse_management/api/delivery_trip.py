@@ -1,4 +1,5 @@
 import frappe
+from frappe.query_builder.functions import Count
 from frappe.utils import cint, cstr, strip
 
 from warehouse_management.utils.response import error, success
@@ -9,8 +10,7 @@ DEFAULT_LIMIT = 20
 @frappe.whitelist(methods=["GET"])
 def delivery_trip(limit=None, offset=None):
 	"""Return every Delivery Trip with its driver, vehicle no and its delivery
-	and pickup counts. Every stop is a delivery today, so `pickup` is always 0
-	until pickup stops are modelled.
+	and pickup counts — the delivery stops and pickup rows on the trip.
 
 	Query params, both optional: `limit` (default 20) and `offset` (rows to
 	skip, default 0).
@@ -29,10 +29,12 @@ def delivery_trip(limit=None, offset=None):
 			limit_start=cint(offset),
 		)
 
-		stop_counts = _stop_counts([trip.delivery_trip_id for trip in delivery_trips])
+		trip_names = [trip.delivery_trip_id for trip in delivery_trips]
+		delivery_counts = _child_counts(trip_names, "Delivery Stop")
+		pickup_counts = _child_counts(trip_names, "Delivery Trip Pickup Detail")
 		for trip in delivery_trips:
-			trip["delivery"] = stop_counts.get(trip.delivery_trip_id, 0)
-			trip["pickup"] = 0
+			trip["delivery"] = delivery_counts.get(trip.delivery_trip_id, 0)
+			trip["pickup"] = pickup_counts.get(trip.delivery_trip_id, 0)
 
 		return success(data=delivery_trips)
 	except Exception as e:
@@ -68,6 +70,14 @@ def delivery_trip_details(delivery_trip_id=None):
 	except Exception as e:
 		frappe.log_error(title="Delivery trip details failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
+
+def validate_has_stops_or_pickups(doc, method=None):
+	"""A trip must carry work. delivery_stops is no longer mandatory so that
+	pickup-only trips can be saved, which leaves an empty trip valid otherwise.
+	"""
+	if not doc.get("delivery_stops") and not doc.get("pickup_details"):
+		frappe.throw(frappe._("Add at least one Delivery Stop or Pickup Detail."))
 
 
 def _trip_stops(delivery_trip_id):
@@ -193,16 +203,17 @@ def _contacts(contact_names):
 	}
 
 
-def _stop_counts(trip_names):
-	"""Delivery Stop rows per trip, keyed by trip name."""
+def _child_counts(trip_names, child_doctype):
+	"""Rows of one child table per trip, keyed by trip name."""
 	if not trip_names:
 		return {}
 
-	rows = frappe.db.sql(
-		"""
-		SELECT parent, COUNT(*) FROM `tabDelivery Stop`
-		WHERE parent IN %(trip_names)s GROUP BY parent
-		""",
-		{"trip_names": tuple(trip_names)},
-	)
-	return dict(rows)
+	child = frappe.qb.DocType(child_doctype)
+	rows = (
+		frappe.qb.from_(child)
+		.select(child.parent, Count(child.name).as_("total"))
+		.where(child.parent.isin(trip_names) & (child.parenttype == "Delivery Trip"))
+		.groupby(child.parent)
+	).run(as_dict=True)
+
+	return {row.parent: row.total for row in rows}

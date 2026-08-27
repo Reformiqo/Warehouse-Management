@@ -39,6 +39,47 @@ def get_custom_fields():
 				"print_hide": 1,
 			},
 		],
+		# a trip collects from one supplier, so the supplier sits on the trip
+		# and the table only lists that supplier's purchase orders
+		"Delivery Trip": [
+			{
+				"fieldname": "pickup_details_section",
+				"label": "Pick Up Details",
+				"fieldtype": "Section Break",
+				"insert_after": "optimize_route",
+				"collapsible": 0,
+			},
+			{
+				"fieldname": "pickup_supplier",
+				"label": "Supplier",
+				"fieldtype": "Link",
+				"options": "Supplier",
+				"insert_after": "pickup_details_section",
+			},
+			{
+				"fieldname": "pickup_supplier_address",
+				"label": "Supplier Address",
+				"fieldtype": "Link",
+				"options": "Address",
+				"insert_after": "pickup_supplier",
+				"depends_on": "pickup_supplier",
+			},
+			{
+				"fieldname": "pickup_supplier_contact",
+				"label": "Supplier Contact",
+				"fieldtype": "Link",
+				"options": "Contact",
+				"insert_after": "pickup_supplier_address",
+				"depends_on": "pickup_supplier",
+			},
+			{
+				"fieldname": "pickup_details",
+				"label": "Pickup Details",
+				"fieldtype": "Table",
+				"options": "Delivery Trip Pickup Detail",
+				"insert_after": "pickup_supplier_contact",
+			},
+		],
 	}
 	for doctype in SUBMITTED_AT_DOCTYPES:
 		fields[doctype] = [dict(SUBMITTED_AT_FIELD)]

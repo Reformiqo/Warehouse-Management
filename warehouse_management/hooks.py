@@ -43,6 +43,7 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
+doctype_js = {"Delivery Trip": "public/js/delivery_trip.js"}
 # doctype_js = {"doctype" : "public/js/doctype.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -147,6 +148,9 @@ doc_events = {
 	},
 	"Stock Reconciliation": {
 		"on_submit": "warehouse_management.api.profile.mark_warehouse_reconciled",
+	},
+	"Delivery Trip": {
+		"validate": "warehouse_management.api.delivery_trip.validate_has_stops_or_pickups",
 	},
 	"Purchase Receipt": {
 		"on_submit": "warehouse_management.utils.stamp_submitted_at",
