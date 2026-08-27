@@ -51,9 +51,10 @@ def profile():
 @frappe.whitelist(methods=["GET"])
 def team_status():
 	"""Return today's warehouse assignments: who is on which warehouse,
-	how many tasks they have, and whether they are done. No input
-	required. Not being allowed to see the team is a normal state, not
-	an error, so it comes back as permitted=False rather than a 403.
+	how many tasks they have, and whether they are done. One row per
+	assignment, so someone on two warehouses appears once per warehouse.
+	No input required. Not being allowed to see the team is a normal state,
+	not an error, so it comes back as permitted=False rather than a 403.
 	"""
 	try:
 		if TEAM_STATUS_ROLE not in frappe.get_roles():
@@ -65,6 +66,7 @@ def team_status():
 				assignment.employee AS emp_id,
 				employee.employee_name AS emp_name,
 				employee.designation,
+				assignment.warehouse,
 				assignment.total_tasks,
 				COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
 					AS completed_tasks
@@ -149,11 +151,12 @@ def mark_warehouse_reconciled(doc, method=None):
 
 
 def _daily_reconciliation_status(user):
-	"""(progress, has_task) for today's Warehouse Daily Assignment.
+	"""(progress, has_task) for today's Warehouse Daily Assignments.
 
-	has_task is False both when no Employee is linked to the user and
-	when the Employee has no assignment today — either way there is
-	nothing to work through, and progress comes back empty.
+	An employee can hold one assignment per warehouse, so the counts are
+	summed across all of today's. has_task is False both when no Employee
+	is linked to the user and when the Employee has no assignment today —
+	either way there is nothing to work through, and progress comes back empty.
 	"""
 	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
 	if not employee:
@@ -177,8 +180,8 @@ def _daily_reconciliation_status(user):
 	if not rows:
 		return {}, False
 
-	total_tasks = rows[0].total_tasks or 0
-	completed_tasks = rows[0].completed_tasks or 0
+	total_tasks = sum(row.total_tasks or 0 for row in rows)
+	completed_tasks = sum(row.completed_tasks or 0 for row in rows)
 
 	if not completed_tasks:
 		status = "Not Started"
@@ -192,7 +195,14 @@ def _daily_reconciliation_status(user):
 		"percentage": flt(completed_tasks / total_tasks * 100, 2) if total_tasks else 0.0,
 		"total_tasks": total_tasks,
 		"completed_tasks": completed_tasks,
-		"team_member": frappe.db.count("Warehouse Daily Assignment"),
+		"team_member": len(
+			frappe.get_all(
+				"Warehouse Daily Assignment",
+				filters={"assignment_date": frappe.utils.today()},
+				pluck="employee",
+				distinct=True,
+			)
+		),
 	}, True
 
 
