@@ -9,6 +9,7 @@
   "reference_name",
   "item_code",
   "qty",
+  "user_counted",
   "variation",
   "is_completed"
  ],
@@ -47,10 +48,19 @@
   },
   {
    "default": "0",
-   "fieldname": "variation",
+   "description": "Stock the picker actually counted",
+   "fieldname": "user_counted",
    "fieldtype": "Float",
    "in_list_view": 1,
-   "label": "Variation"
+   "label": "User Counted"
+  },
+  {
+   "description": "Signed difference of counted against system qty, e.g. VAR +5",
+   "fieldname": "variation",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Variation",
+   "read_only": 1
   },
   {
    "default": "0",

@@ -31,7 +31,6 @@ def create_stock_reconciliation(warehouse=None, items=None):
 		reconciliation.flags.ignore_permissions = True
 		reconciliation.insert(ignore_permissions=True)
 
-		_update_assignment_progress(warehouse, set(item_qty_map))
 		frappe.db.commit()
 
 		return success(
@@ -45,28 +44,6 @@ def create_stock_reconciliation(warehouse=None, items=None):
 		frappe.db.rollback()
 		frappe.log_error(title="Stock reconciliation creation failed", message=frappe.get_traceback())
 		return error(str(e), 500)
-
-
-def _update_assignment_progress(warehouse, item_codes):
-	"""Flag the handled items in today's Warehouse Daily Assignment for
-	this warehouse. Rows are marked, not removed, so total_tasks stays
-	the full assigned count and progress stays derivable per task.
-	"""
-	assignment_name = frappe.db.get_value(
-		"Warehouse Daily Assignment",
-		{"warehouse": warehouse, "assignment_date": frappe.utils.today()},
-		"name",
-	)
-	if not assignment_name:
-		return
-
-	assignment = frappe.get_doc("Warehouse Daily Assignment", assignment_name)
-	for row in assignment.tasks:
-		if row.item_code in item_codes:
-			row.is_completed = 1
-
-	assignment.flags.ignore_permissions = True
-	assignment.save(ignore_permissions=True)
 
 
 def _validate_reconciliation(warehouse, item_qty_map):

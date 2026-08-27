@@ -63,10 +63,11 @@ def my_assignment(search=None, limit=None, offset=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def set_variation(assignment_id=None, task_id=None, variation=None):
-	"""Set the variation on one task row of the caller's own assignment.
+def set_variation(assignment_id=None, task_id=None, user_counted=None):
+	"""Record what the picker counted on one task row of the caller's own
+	assignment, and derive the variation against the system qty.
 
-	Body: `{assignment_id, task_id, variation}`. The assignment is
+	Body: `{assignment_id, task_id, user_counted}`. The assignment is
 	matched against the caller's Employee, so one user cannot write to
 	another's tasks.
 	"""
@@ -76,8 +77,8 @@ def set_variation(assignment_id=None, task_id=None, variation=None):
 		if not assignment_id or not task_id:
 			return error("Please provide assignment_id and task_id.", 400)
 
-		if variation in (None, ""):
-			return error("Please provide a variation.", 400)
+		if user_counted in (None, ""):
+			return error("Please provide a user_counted.", 400)
 
 		employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
 		if not employee:
@@ -89,15 +90,35 @@ def set_variation(assignment_id=None, task_id=None, variation=None):
 		if not owns_assignment:
 			return error(f"Assignment '{assignment_id}' is not yours.", 403)
 
-		if not frappe.db.exists(
-			"Warehouse Daily Assignment Task", {"name": task_id, "parent": assignment_id}
-		):
+		task = frappe.db.get_value(
+			"Warehouse Daily Assignment Task",
+			{"name": task_id, "parent": assignment_id},
+			["name", "qty"],
+			as_dict=True,
+		)
+		if not task:
 			return error(f"Task '{task_id}' is not on assignment '{assignment_id}'.", 404)
 
-		frappe.db.set_value("Warehouse Daily Assignment Task", task_id, "variation", flt(variation))
+		user_counted = flt(user_counted)
+		variation = _variation_label(user_counted, task.qty)
+
+		# counting the row is what completes it, so the rollup moves with the count
+		frappe.db.set_value(
+			"Warehouse Daily Assignment Task",
+			task_id,
+			{"user_counted": user_counted, "variation": variation, "is_completed": 1},
+		)
 		frappe.db.commit()
 
-		return success(data={"task_id": task_id, "variation": flt(variation)})
+		return success(
+			data={
+				"task_id": task_id,
+				"user_counted": user_counted,
+				"system_qty": flt(task.qty),
+				"variation": variation,
+				"is_completed": 1,
+			}
+		)
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error(title="Set variation failed", message=frappe.get_traceback())
@@ -116,7 +137,8 @@ def _get_tasks(assignment_names):
 		"""
 		SELECT task.parent AS assignment_id, task.name AS task_id,
 		       task.item_code, item.item_name,
-		       task.qty, task.variation, task.is_completed,
+		       task.qty AS system_qty, task.user_counted, task.variation,
+		       task.is_completed,
 		       task.reference_doctype, task.reference_name
 		FROM `tabWarehouse Daily Assignment Task` task
 		LEFT JOIN `tabItem` item ON item.name = task.item_code
@@ -126,6 +148,17 @@ def _get_tasks(assignment_names):
 		{"assignments": tuple(assignment_names)},
 		as_dict=True,
 	)
+
+
+def _variation_label(user_counted, system_qty):
+	"""Signed difference as a display string, e.g. 'VAR +5', 'VAR -1', 'VAR 0'.
+	Whole numbers drop the decimal so a count of 7 against 2 reads 'VAR +5'.
+	"""
+	difference = flt(flt(user_counted) - flt(system_qty), 2)
+	if difference == int(difference):
+		difference = int(difference)
+
+	return f"VAR {'+' if difference > 0 else ''}{difference}"
 
 
 def _progress(assignments, tasks):

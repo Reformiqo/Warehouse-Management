@@ -56,9 +56,6 @@ def delivery_trip_details(delivery_trip_id=None):
 		if not frappe.db.exists("Delivery Trip", delivery_trip_id):
 			return error(f"Delivery Trip '{delivery_trip_id}' not found.", 404)
 
-		if not frappe.has_permission("Delivery Trip", "read", doc=delivery_trip_id):
-			return error(f"Not permitted to read Delivery Trip '{delivery_trip_id}'.", 403)
-
 		trip = frappe.db.get_value(
 			"Delivery Trip",
 			delivery_trip_id,
@@ -87,6 +84,9 @@ def _trip_stops(delivery_trip_id):
 	addresses = _addresses(
 		[note.customer_address for note in notes.values()] + [stop.address for stop in stops]
 	)
+	contacts = _contacts(
+		[note.contact_person for note in notes.values()] + [stop.contact for stop in stops]
+	)
 
 	rows = []
 	for stop in stops:
@@ -97,11 +97,9 @@ def _trip_stops(delivery_trip_id):
 				"sales_invoices": invoices.get(stop.delivery_note, []),
 				"customer_po_no": note.get("po_no") or None,
 				"customer_po_date": note.get("po_date"),
-				"party_type": "Customer",
-				"party": note.get("customer") or stop.customer or None,
 				"party_name": note.get("customer_name") or stop.customer or None,
 				"address": addresses.get(note.get("customer_address") or stop.address),
-				"contact": _contact(note, stop),
+				"contact": contacts.get(note.get("contact_person") or stop.contact),
 			}
 		)
 	return rows
@@ -117,15 +115,11 @@ def _delivery_notes(note_names):
 		filters={"name": ["in", note_names]},
 		fields=[
 			"name",
-			"customer",
 			"customer_name",
 			"po_no",
 			"po_date",
 			"customer_address",
 			"contact_person",
-			"contact_display",
-			"contact_mobile",
-			"contact_email",
 		],
 	)
 	return {note.name: note for note in notes}
@@ -176,25 +170,26 @@ def _addresses(address_names):
 	return {address.pop("name"): address for address in addresses}
 
 
-def _contact(note, stop):
-	"""Contact from the Delivery Note, or the stop's own link when unbilled."""
-	if note.get("contact_person"):
-		return {
-			"name": note.get("contact_display") or note.get("contact_person"),
-			"mobile": note.get("contact_mobile") or None,
-			"email": note.get("contact_email") or None,
-		}
+def _contacts(contact_names):
+	"""Contacts keyed by name. Read live rather than from the Delivery Note's
+	contact_* fields, which snapshot the company name as often as the person.
+	"""
+	contact_names = [name for name in contact_names if name]
+	if not contact_names:
+		return {}
 
-	if not stop.contact:
-		return None
-
-	contact = frappe.db.get_value(
-		"Contact", stop.contact, ["full_name", "mobile_no", "email_id"], as_dict=True
+	contacts = frappe.get_all(
+		"Contact",
+		filters={"name": ["in", contact_names]},
+		fields=["name", "full_name", "mobile_no", "email_id"],
 	)
 	return {
-		"name": contact.full_name,
-		"mobile": contact.mobile_no or None,
-		"email": contact.email_id or None,
+		contact.name: {
+			"name": contact.full_name,
+			"mobile": contact.mobile_no or None,
+			"email": contact.email_id or None,
+		}
+		for contact in contacts
 	}
 
 
