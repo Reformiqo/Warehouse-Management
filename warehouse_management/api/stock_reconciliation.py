@@ -6,11 +6,13 @@ from warehouse_management.utils.response import error, success
 
 @frappe.whitelist(methods=["POST"])
 def create_stock_reconciliation(items=None):
-	"""Create one draft Stock Reconciliation per warehouse.
+	"""Create one draft Stock Reconciliation per warehouse and link it back to
+	the caller's daily assignment for that warehouse.
 
 	Body: `{items}` — a list of `{warehouse, item_code, qty}`, since an item
-	now carries the warehouse it was counted in. Left in draft;
-	valuation_rate is filled by ERPNext's own validate().
+	carries the warehouse it was counted in. Every task on the assignment must
+	be counted first, and a warehouse whose count matches system stock is
+	skipped rather than sent to a reconciliation ERPNext would reject as empty.
 	"""
 	try:
 		items = frappe.parse_json(items) if isinstance(items, str) else items
@@ -19,17 +21,39 @@ def create_stock_reconciliation(items=None):
 		if validation_error:
 			return validation_error
 
+		employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+		if not employee:
+			return error("No Employee is linked to your user account.", 404)
+
 		warehouse_items = {}
 		for row in items:
 			warehouse_items.setdefault(row["warehouse"], {})[row["item_code"]] = flt(row.get("qty"))
 
-		created = [
-			_create_for_warehouse(warehouse, item_qty_map)
-			for warehouse, item_qty_map in warehouse_items.items()
-		]
+		assignments = _get_assignments(employee, list(warehouse_items))
+		completion_error = _validate_tasks_completed(assignments)
+		if completion_error:
+			return completion_error
+
+		created, no_variance = [], []
+		for warehouse, item_qty_map in warehouse_items.items():
+			varied = _items_with_variation(warehouse, item_qty_map)
+			if not varied:
+				no_variance.append(warehouse)
+				continue
+
+			name = _create_for_warehouse(warehouse, varied)
+			created.append(name)
+			if assignments.get(warehouse):
+				frappe.db.set_value(
+					"Warehouse Daily Assignment", assignments[warehouse], "stock_reconciliation", name
+				)
+
 		frappe.db.commit()
 
-		return success(data={"stock_reconciliation_ids": created}, http_status=201)
+		return success(
+			data={"stock_reconciliation_ids": created, "no_variance": no_variance},
+			http_status=201 if created else 200,
+		)
 	except Exception as e:
 		frappe.db.rollback()
 		frappe.log_error(title="Stock reconciliation creation failed", message=frappe.get_traceback())
@@ -56,6 +80,62 @@ def _validate_items(items):
 			return error(f"Qty for item '{item_code}' cannot be negative.", 400)
 
 	return None
+
+
+def _get_assignments(employee, warehouses):
+	"""{warehouse: assignment name} for today's assignments held by this
+	employee, so the caller can only reconcile warehouses that are their own.
+	"""
+	rows = frappe.get_all(
+		"Warehouse Daily Assignment",
+		filters={
+			"employee": employee,
+			"assignment_date": frappe.utils.today(),
+			"warehouse": ["in", warehouses],
+		},
+		fields=["name", "warehouse"],
+	)
+	return {row.warehouse: row.name for row in rows}
+
+
+def _validate_tasks_completed(assignments):
+	"""Return an error while any task on the caller's assignments is still
+	uncounted. Nothing is created until this passes.
+	"""
+	if not assignments:
+		return None
+
+	pending = frappe.get_all(
+		"Warehouse Daily Assignment Task",
+		filters={"parent": ["in", list(assignments.values())], "is_completed": 0},
+		fields=["parent", "item_code"],
+	)
+	if pending:
+		warehouse_by_assignment = {name: warehouse for warehouse, name in assignments.items()}
+		details = ", ".join(
+			sorted({f"{row.item_code} ({warehouse_by_assignment[row.parent]})" for row in pending})
+		)
+		return error(f"Please complete the daily reconciliation for: {details}.", 400)
+
+	return None
+
+
+def _items_with_variation(warehouse, item_qty_map):
+	"""Drop items counted at exactly what the system holds — ERPNext strips
+	unchanged rows and refuses a reconciliation left with none.
+	"""
+	bins = frappe.get_all(
+		"Bin",
+		filters={"warehouse": warehouse, "item_code": ["in", list(item_qty_map)]},
+		fields=["item_code", "actual_qty"],
+	)
+	system_qty = {row.item_code: flt(row.actual_qty, 6) for row in bins}
+
+	return {
+		item_code: qty
+		for item_code, qty in item_qty_map.items()
+		if flt(qty, 6) != system_qty.get(item_code, 0.0)
+	}
 
 
 def _create_for_warehouse(warehouse, item_qty_map):
