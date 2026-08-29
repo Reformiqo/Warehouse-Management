@@ -157,8 +157,9 @@ def _daily_reconciliation_status(user):
 	summed across all of today's. has_task is False both when no Employee
 	is linked to the user and when the Employee has no assignment today —
 	either way there is nothing to work through, and progress comes back empty.
-	is_reconciled only turns True once every one of them has raised its
-	Stock Reconciliation.
+	is_reconciled only turns True once every one of them is done — each having
+	raised a Stock Reconciliation, or been flagged no_variation because its
+	count matched system stock and left nothing to post.
 	"""
 	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
 	if not employee:
@@ -169,6 +170,7 @@ def _daily_reconciliation_status(user):
 		SELECT
 			assignment.total_tasks,
 			assignment.stock_reconciliation,
+			assignment.no_variation,
 			COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
 				AS completed_tasks
 		FROM `tabWarehouse Daily Assignment` assignment
@@ -198,7 +200,7 @@ def _daily_reconciliation_status(user):
 		"percentage": flt(completed_tasks / total_tasks * 100, 2) if total_tasks else 0.0,
 		"total_tasks": total_tasks,
 		"completed_tasks": completed_tasks,
-		"is_reconciled": all(row.stock_reconciliation for row in rows),
+		"is_reconciled": all(row.no_variation or row.stock_reconciliation for row in rows),
 		"team_member": len(
 			frappe.get_all(
 				"Warehouse Daily Assignment",

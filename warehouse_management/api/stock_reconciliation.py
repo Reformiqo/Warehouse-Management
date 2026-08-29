@@ -11,8 +11,9 @@ def create_stock_reconciliation(items=None):
 
 	Body: `{items}` — a list of `{warehouse, item_code, qty}`, since an item
 	carries the warehouse it was counted in. Every task on the assignment must
-	be counted first, and a warehouse whose count matches system stock is
-	skipped rather than sent to a reconciliation ERPNext would reject as empty.
+	be counted first, and a warehouse whose count matches system stock is only
+	flagged no_variation rather than sent to a reconciliation ERPNext would
+	reject as empty.
 	"""
 	try:
 		items = frappe.parse_json(items) if isinstance(items, str) else items
@@ -37,16 +38,18 @@ def create_stock_reconciliation(items=None):
 		created, no_variance = [], []
 		for warehouse, item_qty_map in warehouse_items.items():
 			varied = _items_with_variation(warehouse, item_qty_map)
-			if not varied:
+			if varied:
+				name = _create_for_warehouse(warehouse, varied)
+				created.append(name)
+				values = {"stock_reconciliation": name}
+			else:
+				# counted at exactly system stock, so ERPNext has nothing to post and
+				# the flag is what marks the warehouse done in place of a document
 				no_variance.append(warehouse)
-				continue
+				values = {"no_variation": 1}
 
-			name = _create_for_warehouse(warehouse, varied)
-			created.append(name)
 			if assignments.get(warehouse):
-				frappe.db.set_value(
-					"Warehouse Daily Assignment", assignments[warehouse], "stock_reconciliation", name
-				)
+				frappe.db.set_value("Warehouse Daily Assignment", assignments[warehouse], values)
 
 		frappe.db.commit()
 
