@@ -1,5 +1,6 @@
 import frappe
-from frappe.utils import flt
+from frappe import _
+from frappe.utils import flt, get_link_to_form
 
 from warehouse_management.utils.response import error, success
 
@@ -61,6 +62,45 @@ def create_stock_reconciliation(items=None):
 		frappe.db.rollback()
 		frappe.log_error(title="Stock reconciliation creation failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
+
+def restrict_pending_reconciliation_warehouse(doc, method=None):
+	"""hooks.py doc_events target for Stock Ledger Entry before_insert: refuse
+	stock moving through a warehouse whose Stock Reconciliation is still in
+	draft. Every stock document writes ledger entries, so this one hook covers
+	Sales Invoice, Purchase Invoice, Delivery Note, Stock Entry and the rest.
+
+	Reconciliations themselves are exempt — the blocking document has to be
+	able to submit and clear the restriction.
+	"""
+	if doc.voucher_type == "Stock Reconciliation" or not doc.warehouse:
+		return
+
+	pending = _pending_reconciliation(doc.warehouse)
+	if pending:
+		frappe.throw(
+			_("{0} is restricted because the reconciliation is not done yet. Submit {1} first.").format(
+				frappe.bold(doc.warehouse),
+				get_link_to_form("Stock Reconciliation", pending),
+			),
+			title=_("Warehouse Restricted"),
+		)
+
+
+def _pending_reconciliation(warehouse):
+	"""Name of the draft Stock Reconciliation holding this warehouse, or None."""
+	rows = frappe.db.sql(
+		"""
+		SELECT reconciliation.name
+		FROM `tabWarehouse Daily Assignment` assignment
+		INNER JOIN `tabStock Reconciliation` reconciliation
+		        ON reconciliation.name = assignment.stock_reconciliation
+		WHERE assignment.warehouse = %(warehouse)s AND reconciliation.docstatus = 0
+		LIMIT 1
+		""",
+		{"warehouse": warehouse},
+	)
+	return rows[0][0] if rows else None
 
 
 def _validate_items(items):

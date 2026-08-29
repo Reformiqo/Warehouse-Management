@@ -164,6 +164,13 @@ doc_events = {
 	"Stock Entry": {
 		"on_submit": "warehouse_management.utils.stamp_submitted_at",
 	},
+	# every stock document writes ledger entries, so one hook here restricts
+	# a warehouse whose reconciliation is still pending
+	"Stock Ledger Entry": {
+		"before_insert": (
+			"warehouse_management.api.stock_reconciliation.restrict_pending_reconciliation_warehouse"
+		),
+	},
 }
 
 # Scheduled Tasks
