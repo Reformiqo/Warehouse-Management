@@ -170,8 +170,8 @@ def packing_list(limit=None, offset=None):
 
 @frappe.whitelist(methods=["GET"])
 def pick_list_details(pick_list_id=None):
-	"""Return one Pick List: its customer, every item row with the qty to
-	pick, and the Delivery Notes raised against it.
+	"""Return one Pick List: its customer name, every item row with the qty
+	to pick, and the Delivery Notes raised against it.
 
 	Query param: `pick_list_id` (required). Each row carries a `row_id` —
 	pack_pick_list takes those back, since one item can sit on several rows.
@@ -182,10 +182,7 @@ def pick_list_details(pick_list_id=None):
 			return error("Please provide a pick_list_id.", 400)
 
 		pick_list = frappe.db.get_value(
-			"Pick List",
-			pick_list_id,
-			["name", "customer", "customer_name", "status", "docstatus"],
-			as_dict=True,
+			"Pick List", pick_list_id, ["name", "customer_name"], as_dict=True
 		)
 		if not pick_list:
 			return error(f"Pick List '{pick_list_id}' not found.", 404)
@@ -208,10 +205,7 @@ def pick_list_details(pick_list_id=None):
 		return success(
 			data={
 				"pick_list_id": pick_list.name,
-				"customer": pick_list.customer,
 				"customer_name": pick_list.customer_name,
-				"status": pick_list.status,
-				"docstatus": pick_list.docstatus,
 				"total_items": len({row.item_code for row in rows}),
 				"delivery_notes": _delivery_notes_for(pick_list_id),
 				"items": rows,

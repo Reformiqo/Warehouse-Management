@@ -6,15 +6,17 @@ from warehouse_management.utils.response import error, success
 
 
 @frappe.whitelist(methods=["POST"])
-def create_stock_reconciliation(items=None):
+def create_stock_reconciliation(items=None, file_url=None):
 	"""Create one draft Stock Reconciliation per warehouse and link it back to
 	the caller's daily assignment for that warehouse.
 
-	Body: `{items}` — a list of `{warehouse, item_code, qty}`, since an item
-	carries the warehouse it was counted in. Every task on the assignment must
-	be counted first, and a warehouse whose count matches system stock is only
-	flagged no_variation rather than sent to a reconciliation ERPNext would
-	reject as empty.
+	Body: `{items, file_url}` — items is a list of `{warehouse, item_code,
+	qty}`, since an item carries the warehouse it was counted in, and
+	`file_url` optionally points at a file already uploaded through
+	/api/method/upload_file, which is attached to the reconciliation raised.
+	Every task on the assignment must be counted first, and a warehouse whose
+	count matches system stock is only flagged no_variation rather than sent
+	to a reconciliation ERPNext would reject as empty.
 	"""
 	try:
 		items = frappe.parse_json(items) if isinstance(items, str) else items
@@ -22,6 +24,11 @@ def create_stock_reconciliation(items=None):
 		validation_error = _validate_items(items)
 		if validation_error:
 			return validation_error
+
+		file_url = frappe.utils.strip(frappe.utils.cstr(file_url))
+		attachment = frappe.db.get_value("File", {"file_url": file_url}, "name") if file_url else None
+		if file_url and not attachment:
+			return error(f"File '{file_url}' not found.", 404)
 
 		employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
 		if not employee:
@@ -51,6 +58,9 @@ def create_stock_reconciliation(items=None):
 
 			if assignments.get(warehouse):
 				frappe.db.set_value("Warehouse Daily Assignment", assignments[warehouse], values)
+
+		if attachment and created:
+			_attach_to(created[0], attachment)
 
 		frappe.db.commit()
 
@@ -179,6 +189,17 @@ def _items_with_variation(warehouse, item_qty_map):
 		for item_code, qty in item_qty_map.items()
 		if flt(qty, 6) != system_qty.get(item_code, 0.0)
 	}
+
+
+def _attach_to(reconciliation, attachment):
+	"""Point an already-uploaded File at this reconciliation. The upload is
+	relinked in place, so nothing is copied and no second File row appears.
+	"""
+	frappe.db.set_value(
+		"File",
+		attachment,
+		{"attached_to_doctype": "Stock Reconciliation", "attached_to_name": reconciliation},
+	)
 
 
 def _create_for_warehouse(warehouse, item_qty_map):
