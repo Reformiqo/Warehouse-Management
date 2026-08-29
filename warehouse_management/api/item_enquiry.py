@@ -6,27 +6,33 @@ from erpnext.stock.report.stock_balance.stock_balance import execute as run_stoc
 from frappe.utils import cint
 
 from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES, get_cached_stats
-from warehouse_management.utils import get_open_order_counts, get_pending_sales_orders
+from warehouse_management.utils import (
+	get_open_order_counts,
+	get_pending_sales_orders,
+	item_search_filters,
+)
 from warehouse_management.utils.response import error, success
 
 DEFAULT_LIMIT = 20
 
 
 @frappe.whitelist(methods=["GET"])
-def item_enquiry(search=None, limit=None, offset=None):
+def item_enquiry(search=None, barcode=None, limit=None, offset=None):
 	"""Return items with today's stock spread plus open PO/SO linkage.
 
-	Query params, all optional: `search` (matches item name), `limit`
-	(default 20) and `offset` (rows to skip, default 0). total_item is
-	the count matching `search`, so the client can page through it.
+	Query params, all optional: `barcode` (matches part of any of the item's
+	barcodes, wins over `search`), `search` (matches item name), `limit`
+	(default 20) and `offset` (rows to skip, default 0). total_item is the
+	count matching the filter, so the client can page through it.
 	"""
 	try:
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		barcode = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(barcode)))
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
-		filters = {"item_name": ["like", f"%{search}%"]} if search else {}
-		total_item = frappe.db.count("Item", filters) if search else get_cached_stats()["total_items"]
+		filters = item_search_filters(search, barcode)
+		total_item = frappe.db.count("Item", filters) if filters else get_cached_stats()["total_items"]
 
 		stock_by_item = _get_stock_by_item()
 		open_so = get_open_order_counts("Sales Order Item", "Sales Order", OPEN_SO_STATUSES)
@@ -39,6 +45,7 @@ def item_enquiry(search=None, limit=None, offset=None):
 			order_by="item_name",
 			limit_start=offset,
 			limit_page_length=limit,
+			distinct=True,
 		)
 
 		items = []

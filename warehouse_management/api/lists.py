@@ -1,6 +1,7 @@
 import frappe
 from frappe.utils import cint
 
+from warehouse_management.utils import item_search_filters, strip_link_marker
 from warehouse_management.utils.response import error, success
 
 DEFAULT_LIMIT = 20
@@ -19,17 +20,18 @@ RECENT_SOURCES = [
 def warehouse_list(search=None, limit=None, offset=None):
 	"""Return enabled leaf Warehouses (is_group = 0, not disabled).
 
-	Query params, all optional: `search` (matches warehouse name),
+	Query params, all optional: `search` (matches the warehouse id),
 	`limit` (default 20) and `offset` (rows to skip, default 0).
 	"""
 	try:
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		search = strip_link_marker(search)
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
 		filters = {"is_group": 0, "disabled": 0}
 		if search:
-			filters["warehouse_name"] = ["like", f"%{search}%"]
+			filters["name"] = ["like", f"%{search}%"]
 
 		warehouses = frappe.get_all(
 			"Warehouse",
@@ -46,20 +48,20 @@ def warehouse_list(search=None, limit=None, offset=None):
 
 
 @frappe.whitelist(methods=["GET"])
-def item_list(search=None, limit=None, offset=None):
+def item_list(search=None, barcode=None, limit=None, offset=None):
 	"""Return stock Items (is_stock_item = 1).
 
-	Query params, all optional: `search` (matches item name), `limit`
+	Query params, all optional: `barcode` (matches part of any of the item's
+	barcodes, wins over `search`), `search` (matches item name), `limit`
 	(default 20) and `offset` (rows to skip, default 0).
 	"""
 	try:
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		barcode = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(barcode)))
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
-		filters = {"is_stock_item": 1}
-		if search:
-			filters["item_name"] = ["like", f"%{search}%"]
+		filters = [["Item", "is_stock_item", "=", 1], *item_search_filters(search, barcode)]
 
 		items = frappe.get_all(
 			"Item",
@@ -68,6 +70,7 @@ def item_list(search=None, limit=None, offset=None):
 			order_by="item_name",
 			limit_start=offset,
 			limit_page_length=limit,
+			distinct=True,
 		)
 		return success(data=items)
 	except Exception as e:

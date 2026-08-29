@@ -2,6 +2,7 @@ import frappe
 from erpnext.stock.report.stock_balance.stock_balance import execute as run_stock_balance
 from frappe.utils import cint
 
+from warehouse_management.utils import strip_link_marker
 from warehouse_management.utils.response import error, success
 
 DEFAULT_LIMIT = 20
@@ -18,7 +19,7 @@ def warehouse_enquiry(warehouse=None, search=None, limit=None, offset=None):
 	consistent with the paged items list.
 	"""
 	try:
-		warehouse = frappe.utils.strip(frappe.utils.cstr(warehouse))
+		warehouse = strip_link_marker(warehouse)
 		if not warehouse:
 			return error("Please provide a warehouse.", 400)
 

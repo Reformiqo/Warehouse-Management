@@ -8,6 +8,27 @@ def stamp_submitted_at(doc, method=None):
 	doc.db_set("submitted_at", frappe.utils.now(), update_modified=False)
 
 
+def strip_link_marker(value):
+	"""Link pickers send a value as "R-D07/Shelf-E - HTM^^Warehouse" - keep
+	only the id in front of the doctype marker.
+	"""
+	return frappe.utils.strip(frappe.utils.cstr(value).split("^^")[0])
+
+
+def item_search_filters(search=None, barcode=None):
+	"""Item filter conditions for a barcode scan or a typed search, empty for
+	neither. Callers pass these to a query with distinct=True, since an item
+	with several matching barcodes joins to one row each.
+
+	`barcode` wins when both are given and joins Item Barcode, so a partial
+	code still matches; `search` matches part of the item name.
+	"""
+	if barcode:
+		return [["Item Barcode", "barcode", "like", f"%{barcode}%"]]
+
+	return [["Item", "item_name", "like", f"%{search}%"]] if search else []
+
+
 def generate_api_keys(user_name):
 	"""Create or rotate a User's API key/secret. `ignore_permissions=True`
 	covers the save, so no Administrator switch is needed.
