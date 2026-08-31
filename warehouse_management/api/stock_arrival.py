@@ -47,32 +47,6 @@ def entry_type_list():
 
 
 @frappe.whitelist(methods=["GET"])
-def source_list(search=None, limit=None, offset=None):
-	try:
-		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
-		limit = cint(limit) or DEFAULT_LIMIT
-		offset = cint(offset)
-
-		filters = {"misc_master_name": SOURCE_MISC_MASTER}
-		if search:
-			filters["name"] = ["like", f"%{search}%"]
-
-		sources = frappe.get_all(
-			SOURCE_DOCTYPE,
-			filters=filters,
-			fields=["name as id", "misc_master_name"],
-			order_by="name",
-			limit_start=offset,
-			limit_page_length=limit,
-		)
-		return success(data=sources)
-	except Exception as e:
-		frappe.log_error(title="Stock arrival source list failed", message=frappe.get_traceback())
-		return error(str(e), 500)
-
-
-
-@frappe.whitelist(methods=["GET"])
 def arrival_location_list():
 	try:
 		if not frappe.db.exists("DocType", ENTRY_TYPE_DOCTYPE):
@@ -88,6 +62,7 @@ def arrival_location_list():
 	except Exception as e:
 		frappe.log_error(title="Stock arrival location list failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
 
 @frappe.whitelist(methods=["POST"])
 def create_stock_arrival(
@@ -109,10 +84,15 @@ def create_stock_arrival(
 	lr_no=None,
 	remark=None,
 	arrival_location=None,
+	file_urls=None,
 ):
 	"""Create one Hns Stock Arrival. naming_series is left to the doctype, which
 	defaults it to SA-.FY.- . Select values and missing links are checked by
 	Frappe itself on insert and come back as a 400.
+
+	`file_urls` optionally carries files already uploaded through
+	/api/method/upload_file - one url or a list of them - which are attached to
+	the arrival raised.
 	"""
 	try:
 		values = {
@@ -145,6 +125,7 @@ def create_stock_arrival(
 		arrival = frappe.get_doc({"doctype": ENTRY_TYPE_DOCTYPE, **values})
 		arrival.flags.ignore_permissions = True
 		arrival.insert(ignore_permissions=True)
+		_attach_to(arrival.name, file_urls)
 		frappe.db.commit()
 
 		return success(
@@ -158,6 +139,29 @@ def create_stock_arrival(
 		frappe.db.rollback()
 		frappe.log_error(title="Stock arrival creation failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
+
+def _attach_to(arrival, file_urls):
+	"""Point already-uploaded Files at this arrival, by url. Each upload is
+	relinked in place, so nothing is copied and no second File row appears.
+	"""
+	# a form-encoded body sends a list as a JSON string, a single url as itself
+	urls = file_urls
+	if isinstance(urls, str) and urls.strip().startswith("["):
+		urls = frappe.parse_json(urls)
+	if not isinstance(urls, list):
+		urls = [urls]
+
+	for url in urls:
+		url = frappe.utils.strip(frappe.utils.cstr(url))
+		if not url:
+			continue
+
+		frappe.db.set_value(
+			"File",
+			{"file_url": url},
+			{"attached_to_doctype": ENTRY_TYPE_DOCTYPE, "attached_to_name": arrival},
+		)
 
 
 def _validate_arrival(values):

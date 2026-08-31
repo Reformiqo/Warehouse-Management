@@ -9,7 +9,10 @@ RECENT_LIMIT = 5
 
 # Party Type value -> the doctype field holding that party's display name
 PARTY_NAME_FIELD = {"Customer": "customer_name", "Supplier": "supplier_name"}
-MISC_MASTER_DOCTYPE = "Hns Misc Master"
+MISC_MASTER_DOCTYPE = "Hns Misc Master Details"
+# misc_master_name on a Details row links back to its master, so it is the group
+# filter - the label shown to the user is `value`
+MISC_MASTER_GROUP = "Delivery By"
 EXCLUDED_USERS = ("Administrator", "Guest")
 
 # (doctype, label, extra filters) — Material Transfer is a Stock Entry purpose
@@ -145,9 +148,10 @@ def party_list(party_type=None, search=None, limit=None, offset=None):
 
 @frappe.whitelist(methods=["GET"])
 def misc_master_list(search=None, limit=None, offset=None):
-	"""Return Hns Misc Master codes - the groups that Hns Misc Master Details
-	rows hang off. Query params, all optional: `search` (matches the code),
-	`limit` (default 20) and `offset` (rows to skip, default 0).
+	"""Return the Hns Misc Master Details rows of the Delivery By master - the
+	values behind the stock arrival source picker. Query params, all optional:
+	`search` (matches the value), `limit` (default 20) and `offset` (rows to
+	skip, default 0).
 	"""
 	try:
 		search = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(search)))
@@ -157,15 +161,15 @@ def misc_master_list(search=None, limit=None, offset=None):
 		if not frappe.db.exists("DocType", MISC_MASTER_DOCTYPE):
 			return error(f"{MISC_MASTER_DOCTYPE} is not available on this site", 404)
 
-		filters = {}
+		filters = {"misc_master_name": MISC_MASTER_GROUP}
 		if search:
-			filters["misc_master_code"] = ["like", f"%{search}%"]
+			filters["value"] = ["like", f"%{search}%"]
 
 		masters = frappe.get_all(
 			MISC_MASTER_DOCTYPE,
 			filters=filters,
-			fields=["misc_master_code", "misc_master_name"],
-			order_by="misc_master_code",
+			fields=["record_id as misc_master_code", "value as misc_master_name"],
+			order_by="value",
 			limit_start=offset,
 			limit_page_length=limit,
 		)
@@ -278,7 +282,12 @@ def _recent_for(doctype, label, extra_filters):
 	"""
 	rows = frappe.get_all(
 		doctype,
-		filters={"docstatus": 1, "owner": frappe.session.user, "submitted_at": ["is", "set"], **extra_filters},
+		filters={
+			"docstatus": 1,
+			"owner": frappe.session.user,
+			"submitted_at": ["is", "set"],
+			**extra_filters,
+		},
 		fields=["name", "submitted_at"],
 		order_by="submitted_at desc",
 		limit=RECENT_LIMIT,
