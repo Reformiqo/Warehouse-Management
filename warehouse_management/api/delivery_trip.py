@@ -80,6 +80,17 @@ def validate_has_stops_or_pickups(doc, method=None):
 		frappe.throw(frappe._("Add at least one Delivery Stop or Pickup Detail."))
 
 
+def add_delivery_trip_to_purchase_order_dashboard(data):
+	"""hooks.py override_doctype_dashboards target for Purchase Order: list the
+	Delivery Trips collecting it. Frappe resolves the link through Delivery Trip
+	Pickup Detail.purchase_order, the same way Delivery Note reaches its trips.
+	"""
+	data.setdefault("transactions", []).append(
+		{"label": frappe._("Logistics"), "items": ["Delivery Trip"]}
+	)
+	return data
+
+
 def _trip_stops(delivery_trip_id):
 	"""Stops of a trip, each enriched from its Delivery Note where linked."""
 	stops = frappe.get_all(

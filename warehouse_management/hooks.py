@@ -213,9 +213,11 @@ after_migrate = [
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "warehouse_management.task.get_dashboard_data"
-# }
+override_doctype_dashboards = {
+	"Purchase Order": (
+		"warehouse_management.api.delivery_trip.add_delivery_trip_to_purchase_order_dashboard"
+	),
+}
 
 # exempt linked doctypes from being automatically cancelled
 #
