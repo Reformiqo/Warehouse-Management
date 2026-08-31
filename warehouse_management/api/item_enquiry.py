@@ -117,7 +117,26 @@ def _get_stock_by_item():
 
 
 def _get_warehouse_details(item_code):
-	"""[{warehouse, batch, qty}, ...] for one item, today only.
+	"""[{warehouse, batch, qty}, ...] for one item, zero balances left out.
+
+	Only a batched item can be broken down per batch — the batch report reads
+	ledger entries that carry a batch and returns nothing for anything else, so
+	the rest is read straight off Bin with batch left None.
+	"""
+	if frappe.db.get_value("Item", item_code, "has_batch_no"):
+		return _get_batch_details(item_code)
+
+	bins = frappe.get_all(
+		"Bin",
+		filters={"item_code": item_code, "actual_qty": ["!=", 0]},
+		fields=["warehouse", "actual_qty as qty"],
+		order_by="warehouse",
+	)
+	return [{"warehouse": row.warehouse, "batch": None, "qty": row.qty} for row in bins]
+
+
+def _get_batch_details(item_code):
+	"""[{warehouse, batch, qty}, ...] for a batched item, today only.
 
 	get_item_warehouse_batch_map() is the Batch-Wise Balance History
 	report's own internal helper — it already returns
