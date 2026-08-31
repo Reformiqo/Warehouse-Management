@@ -14,7 +14,6 @@ PLAN_ITEM_FIELDS = (
 	"item_code",
 	"item_name",
 	"qty",
-	"uom",
 	"delivery_date",
 	"lot_no",
 	"sales_order_item",
@@ -127,8 +126,9 @@ def sales_order_list(customer=None, search=None, limit=None, offset=None):
 
 @frappe.whitelist(methods=["GET"])
 def sales_order_item_list(sales_order=None, search=None, limit=None, offset=None):
-	"""Return the item code and name of each row on one Sales Order, in the
-	order's own row order.
+	"""Return the row id, item code and name of each row on one Sales Order, in
+	the order's own row order. sales_order_item is what create_delivery_plan
+	takes on its item rows.
 
 	Query params: `sales_order` is required; `search` (matches the item name),
 	`limit` (default 20) and `offset` (rows to skip) are optional.
@@ -152,7 +152,7 @@ def sales_order_item_list(sales_order=None, search=None, limit=None, offset=None
 		items = frappe.get_all(
 			"Sales Order Item",
 			filters=filters,
-			fields=["item_code", "item_name"],
+			fields=["name as sales_order_item", "item_code", "item_name"],
 			order_by="idx",
 			limit_start=offset,
 			limit_page_length=limit,
@@ -178,7 +178,7 @@ def create_delivery_plan(
 	"""Create one Hns Delivery Plan as a draft.
 
 	Body: `{customer, items, ...}` — `items` is a list of
-	`{item_code, qty, uom, delivery_date, lot_no, sales_order_item, remark}`.
+	`{item_code, qty, delivery_date, lot_no, sales_order_item, remark}`.
 	`transaction_date` is when the plan is raised (defaults to today) and
 	`delivery_date` is when it ships - an item row without its own delivery_date
 	inherits the plan's. custom_hns_fiscal, the company abbr and total_qty are
@@ -226,11 +226,29 @@ def _plan_item(row, plan_delivery_date=None):
 	"""One child row, keeping only the columns a caller is allowed to set. A row
 	without its own delivery_date falls back to the plan's, which is how the
 	existing plans are stored.
+
+	uom and sales_order_item are filled in rather than left empty - the plan
+	doctype keys its rows on both and cannot concatenate a None.
 	"""
 	item = {field: row[field] for field in PLAN_ITEM_FIELDS if row.get(field) not in (None, "")}
 	if not item.get("delivery_date") and plan_delivery_date:
 		item["delivery_date"] = plan_delivery_date
+
+	item["sales_order_item"] = frappe.utils.cstr(item.get("sales_order_item"))
+	item["uom"] = _row_uom(item)
 	return item
+
+
+def _row_uom(item):
+	"""uom is not posted any more, so it comes off the linked Sales Order row,
+	falling back to the item's own stock uom.
+	"""
+	if item.get("sales_order_item"):
+		uom = frappe.db.get_value("Sales Order Item", item["sales_order_item"], "uom")
+		if uom:
+			return uom
+
+	return frappe.utils.cstr(frappe.db.get_value("Item", item.get("item_code"), "stock_uom"))
 
 
 def _hns_fiscal(date):
