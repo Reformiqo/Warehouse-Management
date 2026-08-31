@@ -271,13 +271,14 @@ def courier_list(search=None, limit=None, offset=None):
 
 
 def _recent_for(doctype, label, extra_filters):
-	"""The caller's last RECENT_LIMIT submitted docs of one doctype,
-	newest first, by the submitted_at custom field (see
-	setup/custom_fields.py — it carries a search_index for this sort).
+	"""The caller's last RECENT_LIMIT submitted docs of one doctype, newest
+	first, by the submitted_at custom field (see setup/custom_fields.py — it
+	carries a search_index for this sort). Docs submitted before this app was
+	installed have no stamp, so they are left out rather than sorted as None.
 	"""
 	rows = frappe.get_all(
 		doctype,
-		filters={"docstatus": 1, "owner": frappe.session.user, **extra_filters},
+		filters={"docstatus": 1, "owner": frappe.session.user, "submitted_at": ["is", "set"], **extra_filters},
 		fields=["name", "submitted_at"],
 		order_by="submitted_at desc",
 		limit=RECENT_LIMIT,
