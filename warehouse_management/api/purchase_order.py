@@ -1,7 +1,8 @@
 import frappe
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
-from warehouse_management.api.profile import OPEN_PO_STATUSES
+from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES
+from warehouse_management.utils import get_pending_sales_orders
 from warehouse_management.utils.response import error, success
 
 DEFAULT_LIMIT = 20
@@ -62,8 +63,9 @@ def purchase_order_detail(po_id=None):
 
 @frappe.whitelist(methods=["GET"])
 def item_stock(item_code=None):
-	"""Return every warehouse currently holding this item, with its
-	balance qty. Read from Bin so it covers non batch-tracked items.
+	"""Return every warehouse currently holding this item, with its balance qty,
+	plus the Sales Orders still pending against it and what each customer has
+	ordered in total. Read from Bin so it covers non batch-tracked items.
 
 	Query param: `item_code` (required).
 	"""
@@ -81,7 +83,13 @@ def item_stock(item_code=None):
 			fields=["warehouse", "actual_qty as balance_qty"],
 			order_by="warehouse",
 		)
-		return success(data=rows, total_balance_qty=sum(row.balance_qty for row in rows))
+		pending_sales_orders = get_pending_sales_orders(item_code, OPEN_SO_STATUSES)
+
+		return success(
+			data=rows,
+			total_balance_qty=sum(row.balance_qty for row in rows),
+			pending_sales_orders=pending_sales_orders,
+		)
 	except Exception as e:
 		frappe.log_error(title="Item stock lookup failed", message=frappe.get_traceback())
 		return error(str(e), 500)
