@@ -72,8 +72,8 @@ def item_stock(item_code=None):
 		if not item_code:
 			return error("Please provide an item_code.", 400)
 
-		if not frappe.db.exists("Item", item_code):
-			return error(f"Item '{item_code}' not found.", 404)
+		if not frappe.db.exists("Item", {"name": item_code, "disabled": 0}):
+			return error(f"Item '{item_code}' not found or is disabled.", 404)
 
 		rows = frappe.get_all(
 			"Bin",

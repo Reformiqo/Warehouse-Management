@@ -1,5 +1,6 @@
 """Custom fields added by this app to standard doctypes."""
 
+import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 # Frappe has no native submit timestamp, and Pick List has no posting_date
@@ -8,6 +9,7 @@ SUBMITTED_AT_DOCTYPES = ["Purchase Receipt", "Delivery Note", "Pick List", "Stoc
 
 SUBMITTED_AT_FIELD = {
 	"fieldname": "submitted_at",
+	"insert_after": "posting_time",
 	"label": "Submitted At",
 	"fieldtype": "Datetime",
 	"read_only": 1,
@@ -89,3 +91,4 @@ def get_custom_fields():
 
 def create_fields():
 	create_custom_fields(get_custom_fields())
+

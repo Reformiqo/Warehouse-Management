@@ -121,8 +121,8 @@ def get_cached_stats():
 		return cached
 
 	stats = {
-		"total_items": frappe.db.count("Item"),
-		"total_warehouse": frappe.db.count("Warehouse"),
+		"total_items": frappe.db.count("Item", {"disabled": 0}),
+		"total_warehouse": frappe.db.count("Warehouse", {"disabled": 0}),
 	}
 	frappe.cache.set_value(STATS_CACHE_KEY, stats)
 	return stats
@@ -217,4 +217,4 @@ def _all_leaf_warehouses_reconciled():
 	initial_reconciliation = 0. Queried live, not cached, since it
 	changes via mark_warehouse_reconciled on Stock Reconciliation submit.
 	"""
-	return not frappe.db.exists("Warehouse", {"is_group": 0, "initial_reconciliation": 0})
+	return not frappe.db.exists("Warehouse", {"is_group": 0, "disabled": 0, "initial_reconciliation": 0})

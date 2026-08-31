@@ -23,8 +23,8 @@ def warehouse_enquiry(warehouse=None, search=None, limit=None, offset=None):
 		if not warehouse:
 			return error("Please provide a warehouse.", 400)
 
-		if not frappe.db.exists("Warehouse", warehouse):
-			return error(f"Warehouse '{warehouse}' not found.", 404)
+		if not frappe.db.exists("Warehouse", {"name": warehouse, "disabled": 0}):
+			return error(f"Warehouse '{warehouse}' not found or is disabled.", 404)
 
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
 		limit = cint(limit) or DEFAULT_LIMIT

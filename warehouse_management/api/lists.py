@@ -54,7 +54,7 @@ def warehouse_list(search=None, limit=None, offset=None):
 
 @frappe.whitelist(methods=["GET"])
 def item_list(search=None, barcode=None, limit=None, offset=None):
-	"""Return stock Items (is_stock_item = 1).
+	"""Return enabled stock Items (is_stock_item = 1, not disabled).
 
 	Query params, all optional: `barcode` (matches part of any of the item's
 	barcodes, wins over `search`), `search` (matches item name), `limit`
@@ -66,7 +66,11 @@ def item_list(search=None, barcode=None, limit=None, offset=None):
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
-		filters = [["Item", "is_stock_item", "=", 1], *item_search_filters(search, barcode)]
+		filters = [
+			["Item", "is_stock_item", "=", 1],
+			["Item", "disabled", "=", 0],
+			*item_search_filters(search, barcode),
+		]
 
 		items = frappe.get_all(
 			"Item",

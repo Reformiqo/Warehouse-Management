@@ -76,17 +76,17 @@ def create_material_transfer(source_warehouse=None, target_warehouse=None, item_
 
 def _validate_transfer(source_warehouse, target_warehouse, item_code, qty):
 	"""Return an error, or None when the input is valid."""
-	if not source_warehouse or not frappe.db.exists("Warehouse", source_warehouse):
-		return error("Please provide a valid source warehouse.", 400)
+	if not source_warehouse or not frappe.db.exists("Warehouse", {"name": source_warehouse, "disabled": 0}):
+		return error("Please provide a valid, enabled source warehouse.", 400)
 
-	if not target_warehouse or not frappe.db.exists("Warehouse", target_warehouse):
-		return error("Please provide a valid target warehouse.", 400)
+	if not target_warehouse or not frappe.db.exists("Warehouse", {"name": target_warehouse, "disabled": 0}):
+		return error("Please provide a valid, enabled target warehouse.", 400)
 
 	if source_warehouse == target_warehouse:
 		return error("Source and target warehouse cannot be the same.", 400)
 
-	if not item_code or not frappe.db.exists("Item", item_code):
-		return error("Please provide a valid item_code.", 400)
+	if not item_code or not frappe.db.exists("Item", {"name": item_code, "disabled": 0}):
+		return error("Please provide a valid, enabled item_code.", 400)
 
 	if flt(qty) <= 0:
 		return error("Qty must be greater than zero.", 400)

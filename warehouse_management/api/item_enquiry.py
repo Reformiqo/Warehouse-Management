@@ -5,7 +5,7 @@ from erpnext.stock.report.batch_wise_balance_history.batch_wise_balance_history 
 from erpnext.stock.report.stock_balance.stock_balance import execute as run_stock_balance
 from frappe.utils import cint
 
-from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES, get_cached_stats
+from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES
 from warehouse_management.utils import (
 	get_open_order_counts,
 	get_pending_sales_orders,
@@ -31,8 +31,9 @@ def item_enquiry(search=None, barcode=None, limit=None, offset=None):
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
-		filters = item_search_filters(search, barcode)
-		total_item = frappe.db.count("Item", filters) if filters else get_cached_stats()["total_items"]
+		# disabled is always in play, so the count matches the page below it
+		filters = [["Item", "disabled", "=", 0], *item_search_filters(search, barcode)]
+		total_item = frappe.db.count("Item", filters)
 
 		stock_by_item = _get_stock_by_item()
 		open_so = get_open_order_counts("Sales Order Item", "Sales Order", OPEN_SO_STATUSES)
@@ -81,8 +82,8 @@ def item_detail(item_code=None):
 		if not item_code:
 			return error("Please provide an item_code.", 400)
 
-		if not frappe.db.exists("Item", item_code):
-			return error(f"Item '{item_code}' not found.", 404)
+		if not frappe.db.exists("Item", {"name": item_code, "disabled": 0}):
+			return error(f"Item '{item_code}' not found or is disabled.", 404)
 
 		return success(
 			data={

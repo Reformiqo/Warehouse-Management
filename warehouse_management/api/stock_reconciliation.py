@@ -123,11 +123,11 @@ def _validate_items(items):
 		if not warehouse or not item_code:
 			return error("Every item row needs a warehouse and an item_code.", 400)
 
-		if not frappe.db.exists("Warehouse", warehouse):
-			return error(f"Warehouse '{warehouse}' not found.", 404)
+		if not frappe.db.exists("Warehouse", {"name": warehouse, "disabled": 0}):
+			return error(f"Warehouse '{warehouse}' not found or is disabled.", 404)
 
-		if not frappe.db.exists("Item", item_code):
-			return error(f"Item '{item_code}' not found.", 404)
+		if not frappe.db.exists("Item", {"name": item_code, "disabled": 0}):
+			return error(f"Item '{item_code}' not found or is disabled.", 404)
 
 		if flt(row.get("qty")) < 0:
 			return error(f"Qty for item '{item_code}' cannot be negative.", 400)
