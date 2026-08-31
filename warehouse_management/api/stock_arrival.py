@@ -5,6 +5,7 @@ from warehouse_management.utils.response import error, success
 
 ENTRY_TYPE_DOCTYPE = "Hns Stock Arrival"
 ENTRY_TYPE_FIELD = "entry_type"
+ARRIVAL_LOCATION_FIELD = "arrival_location"
 SOURCE_DOCTYPE = "Hns Misc Master Details"
 SOURCE_MISC_MASTER = "Delivery By"
 DEFAULT_LIMIT = 20
@@ -69,6 +70,24 @@ def source_list(search=None, limit=None, offset=None):
 		frappe.log_error(title="Stock arrival source list failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
+
+
+@frappe.whitelist(methods=["GET"])
+def arrival_location_list():
+	try:
+		if not frappe.db.exists("DocType", ENTRY_TYPE_DOCTYPE):
+			return error(f"{ENTRY_TYPE_DOCTYPE} is not available on this site", 404)
+
+		field = frappe.get_meta(ENTRY_TYPE_DOCTYPE).get_field(ARRIVAL_LOCATION_FIELD)
+		if not field:
+			return error(f"{ENTRY_TYPE_DOCTYPE} has no {ARRIVAL_LOCATION_FIELD} field", 404)
+
+		values = frappe.utils.cstr(field.options).split("\n")
+		data = [value.strip() for value in values if value.strip()]
+		return success(data=data)
+	except Exception as e:
+		frappe.log_error(title="Stock arrival location list failed", message=frappe.get_traceback())
+		return error(str(e), 500)
 
 @frappe.whitelist(methods=["POST"])
 def create_stock_arrival(
