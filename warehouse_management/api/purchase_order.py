@@ -126,12 +126,12 @@ def _matching_po_names(from_date, to_date, item_code, supplier_name):
 		values["to_date"] = to_date
 
 	if item_code:
-		conditions.append("po_item.item_code = %(item_code)s")
-		values["item_code"] = item_code
+		conditions.append("po_item.item_code LIKE %(item_code)s")
+		values["item_code"] = f"%{item_code}%"
 
 	if supplier_name:
-		conditions.append("purchase_order.supplier_name = %(supplier_name)s")
-		values["supplier_name"] = supplier_name
+		conditions.append("purchase_order.supplier_name LIKE %(supplier_name)s")
+		values["supplier_name"] = f"%{supplier_name}%"
 
 	rows = frappe.db.sql(
 		f"""
