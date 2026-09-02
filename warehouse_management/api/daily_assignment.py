@@ -11,7 +11,9 @@ def my_assignment(search=None, limit=None, offset=None):
 	"""Return today's Warehouse Daily Assignments for the caller's Employee:
 	a progress rollup and one task per item to reconcile. An employee can
 	hold one assignment per warehouse, so each task carries its own
-	assignment and warehouse rather than those sitting on the payload.
+	assignment and warehouse rather than those sitting on the payload. A
+	warehouse's one-off first count is seeded as an assignment like any other,
+	so it comes back here too.
 
 	Query params, all optional: `search` (matches item code or name),
 	`limit` (default 20) and `offset` (rows to skip, default 0). The

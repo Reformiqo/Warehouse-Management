@@ -60,8 +60,9 @@ def item_list(search=None, barcode=None, limit=None, offset=None):
 	"""Return enabled stock Items (is_stock_item = 1, not disabled).
 
 	Query params, all optional: `barcode` (matches part of any of the item's
-	barcodes, wins over `search`), `search` (matches item name), `limit`
-	(default 20) and `offset` (rows to skip, default 0).
+	barcodes, wins over `search`), `search` (matches the item code or the item
+	name), `limit` (default 20) and `offset` (rows to skip, default 0). Rows
+	come back by item name, ascending.
 	"""
 	try:
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
@@ -69,17 +70,19 @@ def item_list(search=None, barcode=None, limit=None, offset=None):
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
+		search_filters, or_filters = item_search_filters(search, barcode)
 		filters = [
 			["Item", "is_stock_item", "=", 1],
 			["Item", "disabled", "=", 0],
-			*item_search_filters(search, barcode),
+			*search_filters,
 		]
 
 		items = frappe.get_all(
 			"Item",
 			filters=filters,
+			or_filters=or_filters,
 			fields=["item_code", "item_name"],
-			order_by="item_name",
+			order_by="item_name asc",
 			limit_start=offset,
 			limit_page_length=limit,
 			distinct=True,

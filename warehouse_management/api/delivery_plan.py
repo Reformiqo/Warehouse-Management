@@ -210,6 +210,7 @@ def create_delivery_plan(
 		plan.total_qty = sum(flt(row.qty) for row in plan.items)
 		plan.flags.ignore_permissions = True
 		plan.insert(ignore_permissions=True)
+		plan.submit()
 		frappe.db.commit()
 
 		return success(

@@ -5,13 +5,13 @@ from frappe.utils import flt
 
 
 def assign_daily_warehouses():
-	"""Nightly job (see hooks.py scheduler_events, cron 0 0 * * *): wipe
-	yesterday's Warehouse Daily Assignment rows and hand every warehouse whose
-	stock moved the previous day to an employee. Employees are shuffled and
-	dealt round-robin, so fewer employees than warehouses just means each one
-	carries more of them rather than warehouses going unassigned.
+	"""Nightly job (see hooks.py scheduler_events, cron 0 0 * * *): hand every
+	warehouse whose stock moved the previous day to an employee. Employees are
+	shuffled and dealt round-robin, so fewer employees than warehouses just
+	means each one carries more of them rather than warehouses going
+	unassigned. Past assignments are kept as history; only today's are cleared,
+	so a re-run re-cuts the day rather than doubling it.
 	"""
-	frappe.db.delete("Warehouse Daily Assignment")
 
 	tasks_by_warehouse = _get_previous_day_tasks_by_warehouse()
 	warehouses = list(tasks_by_warehouse.keys())

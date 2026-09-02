@@ -74,6 +74,7 @@ def team_status():
 			INNER JOIN `tabEmployee` employee ON employee.name = assignment.employee
 			LEFT JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
 			WHERE assignment.assignment_date = %(today)s
+			  AND assignment.is_initial_reconciliation = 0
 			GROUP BY assignment.name
 			ORDER BY employee.employee_name
 			""",
@@ -177,6 +178,7 @@ def _daily_reconciliation_status(user):
 		LEFT JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
 		WHERE assignment.employee = %(employee)s
 		  AND assignment.assignment_date = %(today)s
+		  AND assignment.is_initial_reconciliation = 0
 		GROUP BY assignment.name
 		""",
 		{"employee": employee, "today": frappe.utils.today()},
@@ -204,7 +206,7 @@ def _daily_reconciliation_status(user):
 		"team_member": len(
 			frappe.get_all(
 				"Warehouse Daily Assignment",
-				filters={"assignment_date": frappe.utils.today()},
+				filters={"assignment_date": frappe.utils.today(), "is_initial_reconciliation": 0},
 				pluck="employee",
 				distinct=True,
 			)

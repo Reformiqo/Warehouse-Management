@@ -3,7 +3,8 @@ from erpnext.stock.report.batch_wise_balance_history.batch_wise_balance_history 
 	get_item_warehouse_batch_map,
 )
 from erpnext.stock.report.stock_balance.stock_balance import execute as run_stock_balance
-from frappe.utils import cint
+from frappe.query_builder.functions import Count
+from frappe.utils import cint, flt
 
 from warehouse_management.api.profile import OPEN_PO_STATUSES, OPEN_SO_STATUSES
 from warehouse_management.utils import (
@@ -14,6 +15,8 @@ from warehouse_management.utils import (
 from warehouse_management.utils.response import error, success
 
 DEFAULT_LIMIT = 20
+# standard_sale_price is read off this Price List
+SELLING_PRICE_LIST = "Standard Selling"
 
 
 @frappe.whitelist(methods=["GET"])
@@ -21,9 +24,10 @@ def item_enquiry(search=None, barcode=None, limit=None, offset=None):
 	"""Return items with today's stock spread plus open PO/SO linkage.
 
 	Query params, all optional: `barcode` (matches part of any of the item's
-	barcodes, wins over `search`), `search` (matches item name), `limit`
-	(default 20) and `offset` (rows to skip, default 0). total_item is the
-	count matching the filter, so the client can page through it.
+	barcodes, wins over `search`), `search` (matches the item code or the item
+	name), `limit` (default 20) and `offset` (rows to skip, default 0).
+	total_item is the count matching the filter, so the client can page through
+	it. Rows come back by item name, ascending.
 	"""
 	try:
 		search = frappe.utils.strip(frappe.utils.strip_html(frappe.utils.cstr(search)))
@@ -31,8 +35,9 @@ def item_enquiry(search=None, barcode=None, limit=None, offset=None):
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
+		search_filters, or_filters = item_search_filters(search, barcode)
 		# disabled is always in play, so the count matches the page below it
-		filters = [["Item", "disabled", "=", 0], *item_search_filters(search, barcode)]
+		filters = [["Item", "disabled", "=", 0], *search_filters]
 		total_item = frappe.db.count("Item", filters)
 
 		stock_by_item = _get_stock_by_item()
@@ -42,8 +47,9 @@ def item_enquiry(search=None, barcode=None, limit=None, offset=None):
 		page = frappe.get_all(
 			"Item",
 			filters=filters,
+			or_filters=or_filters,
 			fields=["item_code", "item_name", "item_group"],
-			order_by="item_name",
+			order_by="item_name asc",
 			limit_start=offset,
 			limit_page_length=limit,
 			distinct=True,
@@ -72,10 +78,12 @@ def item_enquiry(search=None, barcode=None, limit=None, offset=None):
 
 @frappe.whitelist(methods=["GET"])
 def item_detail(item_code=None):
-	"""Return today's per-warehouse batch breakdown and pending Sales
-	Orders for one item.
+	"""Return today's per-warehouse batch breakdown, pending Sales Orders and
+	the item's three rates.
 
-	Query param: `item_code` (required).
+	Query param: `item_code` (required). last_purchase_rate and
+	avg_purchase_price are stored on the Item; standard_sale_price is the mean
+	of the item's Standard Selling prices.
 	"""
 	try:
 		item_code = frappe.utils.strip(frappe.utils.cstr(item_code))
@@ -85,16 +93,32 @@ def item_detail(item_code=None):
 		if not frappe.db.exists("Item", {"name": item_code, "disabled": 0}):
 			return error(f"Item '{item_code}' not found or is disabled.", 404)
 
+		rates = _get_item_rates(item_code)
 		return success(
 			data={
 				"warehouse_wise_stock": _get_warehouse_details(item_code),
 				"pending_sales_orders": get_pending_sales_orders(item_code, OPEN_SO_STATUSES),
 				"recent_movement": _get_recent_movement(item_code),
+				"last_purchase_rate": rates["last_purchase_rate"],
+				"avg_purchase_price": rates["avg_purchase_price"],
+				"standard_sale_price": rates["standard_sale_price"],
 			}
 		)
 	except Exception as e:
 		frappe.log_error(title="Warehouse item detail failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
+
+def _count_items(filters, or_filters):
+	"""Items matching the enquiry filters. db.count() takes no or_filters, and a
+	barcode search joins Item Barcode, so the distinct name count is built
+	through the query builder instead.
+	"""
+	item = frappe.qb.DocType("Item")
+	query = frappe.qb.get_query(
+		table="Item", filters=filters, or_filters=or_filters, fields=Count(item.name).distinct()
+	)
+	return query.run()[0][0]
 
 
 def _get_stock_by_item():
@@ -175,3 +199,24 @@ def _get_recent_movement(item_code):
 	)
 
 
+def _get_item_rates(item_code):
+	"""The three rates on the detail screen. The purchase ones are stored on the
+	Item; the selling one averages every Standard Selling price on the item,
+	since some items carry a row per uom or validity window.
+	"""
+	item = frappe.db.get_value(
+		"Item", item_code, ["last_purchase_rate", "custom_hns_avg_purchase_rate"], as_dict=True
+	)
+	prices = [
+		flt(rate)
+		for rate in frappe.get_all(
+			"Item Price",
+			filters={"item_code": item_code, "price_list": SELLING_PRICE_LIST},
+			pluck="price_list_rate",
+		)
+	]
+	return {
+		"last_purchase_rate": flt(item.last_purchase_rate),
+		"avg_purchase_price": flt(item.custom_hns_avg_purchase_rate),
+		"standard_sale_price": flt(sum(prices) / len(prices)) if prices else 0.0,
+	}

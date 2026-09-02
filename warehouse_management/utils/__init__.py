@@ -16,17 +16,25 @@ def strip_link_marker(value):
 
 
 def item_search_filters(search=None, barcode=None):
-	"""Item filter conditions for a barcode scan or a typed search, empty for
-	neither. Callers pass these to a query with distinct=True, since an item
-	with several matching barcodes joins to one row each.
+	"""Item conditions for a barcode scan or a typed search, as
+	(filters, or_filters) and empty for neither. Callers pass both to a query
+	with distinct=True, since an item with several matching barcodes joins to
+	one row each.
 
-	`barcode` wins when both are given and joins Item Barcode, so a partial
-	code still matches; `search` matches part of the item name.
+	`barcode` wins when both are given and joins Item Barcode, so a partial code
+	still matches. `search` matches part of the item code or the item name, so
+	it belongs in or_filters - filters would AND the two and match nothing.
 	"""
 	if barcode:
-		return [["Item Barcode", "barcode", "like", f"%{barcode}%"]]
+		return [["Item Barcode", "barcode", "like", f"%{barcode}%"]], []
 
-	return [["Item", "item_name", "like", f"%{search}%"]] if search else []
+	if not search:
+		return [], []
+
+	return [], [
+		["Item", "item_code", "like", f"%{search}%"],
+		["Item", "item_name", "like", f"%{search}%"],
+	]
 
 
 def generate_api_keys(user_name):
