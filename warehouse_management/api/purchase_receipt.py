@@ -66,6 +66,93 @@ def create_purchase_receipt(po_id=None, items=None):
 		return error(str(e), 500)
 
 
+@frappe.whitelist(methods=["GET"])
+def purchase_receipt_detail(pr_id=None):
+	"""Return one Purchase Receipt: who it came from, the Purchase Order behind
+	it and every line received.
+
+	Query param: `pr_id` (required). Each item carries item_code, item_name,
+	qty and the warehouse the stock went into.
+	"""
+	try:
+		pr_id = frappe.utils.strip(frappe.utils.cstr(pr_id))
+		if not pr_id:
+			return error("Please provide a pr_id.", 400)
+
+		receipt = frappe.db.get_value("Purchase Receipt", pr_id, ["name", "supplier_name"], as_dict=True)
+		if not receipt:
+			return error(f"Purchase Receipt '{pr_id}' not found.", 404)
+
+		rows = frappe.get_all(
+			"Purchase Receipt Item",
+			filters={"parent": pr_id},
+			fields=["item_code", "item_name", "qty", "warehouse"],
+			order_by="idx",
+		)
+
+		return success(
+			data={
+				"purchase_receipt_id": receipt.name,
+				"supplier_name": receipt.supplier_name,
+				"items": [
+					{
+						"item_code": row.item_code,
+						"item_name": row.item_name,
+						"qty": flt(row.qty),
+						"warehouse": row.warehouse,
+					}
+					for row in rows
+				],
+			}
+		)
+	except Exception as e:
+		frappe.log_error(title="Purchase receipt detail failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_purchase_receipt(pr_id=None):
+	"""Cancel a submitted Purchase Receipt.
+
+	Body: `{pr_id}`. Cancelling reverses the stock the receipt brought in, so a
+	draft or an already-cancelled one is refused rather than touched.
+	"""
+	try:
+		pr_id = frappe.utils.strip(frappe.utils.cstr(pr_id))
+		if not pr_id:
+			return error("Please provide a pr_id.", 400)
+
+		validation_error = _validate_cancellable(pr_id)
+		if validation_error:
+			return validation_error
+
+		receipt = frappe.get_doc("Purchase Receipt", pr_id)
+		receipt.flags.ignore_permissions = True
+		receipt.cancel()
+		frappe.db.commit()
+
+		return success(data={"purchase_receipt_id": pr_id, "message": "Purchase receipt cancelled."})
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(title="Purchase receipt cancellation failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+def _validate_cancellable(pr_id):
+	"""Return an error, or None when the receipt can be cancelled."""
+	docstatus = frappe.db.get_value("Purchase Receipt", pr_id, "docstatus")
+	if docstatus is None:
+		return error(f"Purchase Receipt '{pr_id}' not found.", 404)
+
+	if docstatus == 0:
+		return error(f"Purchase Receipt '{pr_id}' is a draft, so there is nothing to cancel.", 400)
+
+	if docstatus == 2:
+		return error(f"Purchase Receipt '{pr_id}' is already cancelled.", 400)
+
+	return None
+
+
 def _apply_received_items(rows, item_qty_map):
 	"""Keep only rows for items in item_qty_map, with qty overridden to
 	the requested amount. stock_qty is kept in step with qty, the same
