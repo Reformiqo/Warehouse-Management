@@ -86,7 +86,9 @@ def item_detail(item_code=None):
 
 	Query param: `item_code` (required). last_purchase_rate and
 	avg_purchase_price are stored on the Item; standard_sale_price is the mean
-	of the item's Standard Selling prices. `reconciliation` is served straight
+	of the item's Standard Selling prices. available_for_sale is the item's
+	stock less what open Sales Orders still owe, so it can go negative where an
+	item is committed beyond what is on the shelf. `reconciliation` is served straight
 	off Warehouse Item Reconciliation — per warehouse, the last count and the
 	stock in and out since it.
 	"""
@@ -99,9 +101,12 @@ def item_detail(item_code=None):
 			return error(f"Item '{item_code}' not found or is disabled.", 404)
 
 		rates = _get_item_rates(item_code)
+		warehouse_stock = _get_warehouse_details(item_code)
 		return success(
 			data={
-				"warehouse_wise_stock": _get_warehouse_details(item_code),
+				"warehouse_wise_stock": warehouse_stock,
+				"available_for_sale": flt(sum(row["qty"] for row in warehouse_stock))
+				- _get_committed_so_qty(item_code),
 				"reconciliation": get_item_reconciliation(item_code),
 				"pending_sales_orders": get_pending_sales_orders(item_code, OPEN_SO_STATUSES),
 				"recent_movement": _get_recent_movement(item_code),
@@ -146,6 +151,23 @@ def _get_stock_by_item():
 	return stock_by_item
 
 
+def _get_committed_so_qty(item_code):
+	"""Qty this item's open Sales Orders still owe. Only the undelivered part
+	is committed, so a part-shipped order stops counting for what it has
+	already sent.
+	"""
+	rows = frappe.db.sql(
+		"""
+		SELECT SUM(item_row.qty - item_row.delivered_qty) AS qty
+		FROM `tabSales Order Item` item_row
+		INNER JOIN `tabSales Order` order_doc ON order_doc.name = item_row.parent
+		WHERE order_doc.status IN %(statuses)s AND item_row.item_code = %(item_code)s
+		""",
+		{"statuses": tuple(OPEN_SO_STATUSES), "item_code": item_code},
+	)
+	return flt(rows[0][0]) if rows else 0.0
+
+
 def _get_warehouse_details(item_code):
 	"""[{warehouse, batch, qty}, ...] for one item, zero balances left out.
 
@@ -176,9 +198,7 @@ def _get_batch_details(item_code):
 	"""
 	today = frappe.utils.today()
 	company = frappe.db.get_single_value("Global Defaults", "default_company")
-	filters = frappe._dict(
-		{"company": company, "from_date": today, "to_date": today, "item_code": item_code}
-	)
+	filters = frappe._dict({"company": company, "from_date": today, "to_date": today, "item_code": item_code})
 
 	float_precision = frappe.utils.cint(frappe.db.get_default("float_precision")) or 3
 	warehouse_batch_map = get_item_warehouse_batch_map(filters, float_precision)
