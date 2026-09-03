@@ -14,9 +14,8 @@ from warehouse_management.utils import generate_api_keys
 from warehouse_management.utils.response import error, success
 
 # Stock User is what grants read-only access to Sales Order; Pick List
-# create already comes from Stock Manager. Supplier is read through Purchase
-# Manager because this site's Custom DocPerm strips it from the other three.
-SIGNUP_ROLES = ["Stock Manager", "Purchase User", "Stock User", "Purchase Manager"]
+# create already comes from Stock Manager.
+SIGNUP_ROLES = ["Stock Manager", "Purchase User", "Stock User", "Supplier"]
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

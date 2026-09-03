@@ -1,7 +1,10 @@
 import frappe
-from frappe.query_builder.functions import Count
+from erpnext.stock.doctype.delivery_note.delivery_note import make_delivery_trip
+from frappe.query_builder import Order
+from frappe.query_builder.functions import Coalesce, Count
 from frappe.utils import cint, cstr, flt, strip
 
+from warehouse_management.utils import strip_link_marker
 from warehouse_management.utils.response import error, success
 
 DEFAULT_LIMIT = 20
@@ -86,17 +89,61 @@ def delivery_trip_details(delivery_trip_id=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def mark_visited(delivery_trip_id=None, row_type=None, row_id=None, visited=1):
-	"""Tick or clear visited on one stop or pickup of a Delivery Trip.
+def create_delivery_trip(driver_id=None, vehicle_id=None, departure_time=None, delivery_notes=None):
+	"""Create one Delivery Trip as a draft through erpnext's own
+	make_delivery_trip, a stop per Delivery Note — the mapping the desk runs
+	under "Get stops from > Delivery Note", which checks the rest itself.
 
-	Body: `{delivery_trip_id, row_type, row_id, visited}` — row_type is
-	"stop" or "pickup", row_id the `row_id` from the details response, and
-	visited 1 to mark or 0 to clear (default 1).
+	Body: `{driver_id, vehicle_id, departure_time, delivery_notes}` — the ids
+	come from driver_list and vehicle_list, delivery_notes is a list of the
+	delivery_note_id values pending_delivery_notes returns, and departure_time
+	reads "YYYY-MM-DD HH:mm:ss". The stops keep the order the notes are sent in.
+	"""
+	try:
+		note_names = (
+			frappe.parse_json(delivery_notes) if isinstance(delivery_notes, str) else delivery_notes
+		)
+
+		trip = frappe.new_doc("Delivery Trip")
+		for note_name in note_names or []:
+			make_delivery_trip(note_name, trip)
+
+		trip.driver = driver_id
+		trip.vehicle = vehicle_id
+		trip.departure_time = departure_time
+		trip.flags.ignore_permissions = True
+		trip.insert(ignore_permissions=True)
+		frappe.db.commit()
+
+		return success(
+			data={"delivery_trip_id": trip.name, "message": "Delivery trip created."},
+			http_status=201,
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(title="Delivery trip creation failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_visited(
+	delivery_trip_id=None, row_type=None, row_id=None, visited=1, remark=None, attachment=None
+):
+	"""Tick or clear visited on one stop or pickup of a Delivery Trip, with what
+	the driver saw at the stop and the proof of delivery.
+
+	Body: `{delivery_trip_id, row_type, row_id, visited, remark, attachment}` —
+	row_type is "stop" or "pickup", row_id the `row_id` from the details
+	response, and visited 1 to mark or 0 to clear (default 1). `remark` and
+	`attachment` are for a stop only; `attachment` is the file_url that
+	/api/method/upload_file gives back for the photo, uploaded before this call.
 	"""
 	try:
 		delivery_trip_id = strip(cstr(delivery_trip_id))
 		row_type = strip(cstr(row_type)).lower()
 		row_id = strip(cstr(row_id))
+		remark = strip(frappe.utils.strip_html(cstr(remark)))
+		attachment = strip(cstr(attachment))
 
 		validation_error = _validate_trip(delivery_trip_id)
 		if validation_error:
@@ -110,7 +157,14 @@ def mark_visited(delivery_trip_id=None, row_type=None, row_id=None, visited=1):
 
 		child_doctype = ROW_DOCTYPES[row_type]
 		visited = cint(visited)
-		frappe.db.set_value(child_doctype, row_id, "visited", visited)
+		visit = {"visited": visited}
+		if remark:
+			visit["remark"] = remark
+		if attachment:
+			visit["attachment"] = attachment
+			_attach_to_trip(attachment, delivery_trip_id)
+
+		frappe.db.set_value(child_doctype, row_id, visit)
 		frappe.db.commit()
 
 		return success(
@@ -119,6 +173,8 @@ def mark_visited(delivery_trip_id=None, row_type=None, row_id=None, visited=1):
 				"row_type": row_type,
 				"row_id": row_id,
 				"visited": bool(visited),
+				"remark": remark or None,
+				"attachment": attachment or None,
 			}
 		)
 	except Exception as e:
@@ -209,6 +265,53 @@ def save_delivery_trip(delivery_trip_id=None, driver_id=None, vehicle_id=None):
 		return error(str(e), 500)
 
 
+@frappe.whitelist(methods=["GET"])
+def pending_delivery_notes(search=None, limit=None, offset=None):
+	"""Return submitted Delivery Notes that are not on a Delivery Trip yet, so
+	a trip can be planned against them. Each note carries its customer, the
+	shipping and the billing address, the contact, the customer PO and the
+	Sales Invoices raised against it.
+
+	Query params, all optional: `search` (matches the note id), `limit`
+	(default 20) and `offset` (rows to skip).
+	"""
+	try:
+		search = strip_link_marker(frappe.utils.strip_html(cstr(search)))
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
+		notes = _untripped_notes(search, limit, offset)
+		if not notes:
+			return success(data=[])
+
+		invoices = _sales_invoice_rows([note.name for note in notes])
+		addresses = _addresses(
+			[note.shipping_address_name for note in notes]
+			+ [note.customer_address for note in notes]
+		)
+		contacts = _contacts([note.contact_person for note in notes])
+
+		return success(
+			data=[
+				{
+					"delivery_note_id": note.name,
+					"customer_name": note.customer_name or None,
+					"delivery_date": note.posting_date,
+					"shipping_address": addresses.get(note.shipping_address_name),
+					"customer_address": addresses.get(note.customer_address),
+					"contact": contacts.get(note.contact_person),
+					"customer_po_no": note.po_no or None,
+					"customer_po_date": note.po_date,
+					"sales_invoices": invoices.get(note.name, []),
+				}
+				for note in notes
+			]
+		)
+	except Exception as e:
+		frappe.log_error(title="Pending delivery notes failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
 def validate_has_stops_or_pickups(doc, method=None):
 	"""A trip must carry work. delivery_stops is no longer mandatory so that
 	pickup-only trips can be saved, which leaves an empty trip valid otherwise.
@@ -226,6 +329,17 @@ def add_delivery_trip_to_purchase_order_dashboard(data):
 		{"label": frappe._("Logistics"), "items": ["Delivery Trip"]}
 	)
 	return data
+
+
+def _attach_to_trip(file_url, delivery_trip_id):
+	"""Point a file that was uploaded on its own at the trip, so it shows there
+	and goes when the trip goes. One already attached elsewhere is left alone.
+	"""
+	frappe.db.set_value(
+		"File",
+		{"file_url": file_url},
+		{"attached_to_doctype": "Delivery Trip", "attached_to_name": delivery_trip_id},
+	)
 
 
 def _validate_trip(delivery_trip_id):
@@ -350,6 +464,88 @@ def _delivery_notes(note_names):
 		fields=["name", "customer_name", "po_no", "po_date"],
 	)
 	return {note.name: note for note in notes}
+
+
+def _untripped_notes(search, limit, offset):
+	"""Submitted Delivery Notes carrying no trip, newest first. A trip stamps
+	delivery_trip on its notes as it saves, but the trips this database was
+	restored with mostly never got that far - so the stop rows are the check
+	that holds and the stamp is a second one.
+
+	The stops are matched on delivery_note, indexed by
+	patches/add_delivery_stop_delivery_note_index.py, so the planner looks each
+	candidate note up instead of reading every stop ever made. Reading the trip's
+	own docstatus would cost that index - a stop already carries its trip's.
+	"""
+	note = frappe.qb.DocType("Delivery Note")
+	stop = frappe.qb.DocType("Delivery Stop")
+
+	# a cancelled trip's stops drop out, freeing its notes to be planned again.
+	# a stop need not name a note, and one NULL would make NOT IN match nothing
+	tripped = (
+		frappe.qb.from_(stop)
+		.select(stop.delivery_note)
+		.where(
+			(stop.parenttype == "Delivery Trip")
+			& (stop.docstatus < 2)
+			& stop.delivery_note.isnotnull()
+		)
+	)
+
+	query = (
+		frappe.qb.from_(note)
+		.select(
+			note.name,
+			note.customer_name,
+			note.posting_date,
+			note.shipping_address_name,
+			note.customer_address,
+			note.contact_person,
+			note.po_no,
+			note.po_date,
+		)
+		.where(
+			(note.docstatus == 1)
+			& (Coalesce(note.delivery_trip, "") == "")
+			& note.name.notin(tripped)
+		)
+	)
+
+	if search:
+		query = query.where(note.name.like(f"%{search}%"))
+
+	# posting_date is indexed, so the newest rows are walked in order and the
+	# scan stops at the page - no sort over the whole table
+	return (
+		query.orderby(note.posting_date, order=Order.desc)
+		.orderby(note.name, order=Order.desc)
+		.limit(limit)
+		.offset(offset)
+	).run(as_dict=True)
+
+
+def _sales_invoice_rows(note_names):
+	"""[{sales_invoice_id, sales_invoice_date}, ...] per Delivery Note, for the
+	notes that are billed - a note can be billed across several invoices."""
+	invoices = _sales_invoices(note_names)
+	invoice_names = {name for names in invoices.values() for name in names}
+	if not invoice_names:
+		return {}
+
+	dates = dict(
+		frappe.get_all(
+			"Sales Invoice",
+			filters={"name": ["in", list(invoice_names)]},
+			fields=["name", "posting_date"],
+			as_list=True,
+		)
+	)
+	return {
+		note: [
+			{"sales_invoice_id": name, "sales_invoice_date": dates.get(name)} for name in names
+		]
+		for note, names in invoices.items()
+	}
 
 
 def _sales_invoices(note_names):

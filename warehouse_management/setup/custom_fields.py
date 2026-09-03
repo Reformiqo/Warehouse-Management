@@ -49,6 +49,21 @@ def get_custom_fields():
 				"no_copy": 1,
 			},
 		],
+		# a driver notes what happened at the stop and attaches proof of delivery
+		"Delivery Stop": [
+			{
+				"fieldname": "remark",
+				"label": "Remark",
+				"fieldtype": "Data",
+				"insert_after": "details",
+			},
+			{
+				"fieldname": "attachment",
+				"label": "Attachment",
+				"fieldtype": "Attach",
+				"insert_after": "remark",
+			},
+		],
 		"User": [
 			{
 				"fieldname": "mpin",

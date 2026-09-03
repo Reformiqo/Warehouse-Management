@@ -51,6 +51,9 @@ def create_purchase_receipt(po_id=None, items=None):
 		if not receipt.items:
 			return error("None of the given items are pending on this Purchase Order.", 400)
 
+		# This is their custom field, and mapped is setting this value as per po, which is wrong
+		receipt.create_purchase_receipt = ""
+
 		receipt.flags.ignore_permissions = True
 		receipt.insert(ignore_permissions=True)
 		receipt.submit()

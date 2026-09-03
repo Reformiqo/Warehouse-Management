@@ -6,3 +6,4 @@
 # Patches added in this section will be executed after doctypes are migrated
 warehouse_management.patches.add_warehouse_initial_reconciliation_field
 warehouse_management.patches.create_initial_reconciliation_assignments
+warehouse_management.patches.add_delivery_stop_delivery_note_index

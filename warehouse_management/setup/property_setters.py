@@ -2,6 +2,15 @@
 
 import frappe
 
+# pending_delivery_notes looks a note up by stop, not a stop by trip, so the
+# index this drives is added by patches/add_delivery_stop_delivery_note_index.py
+DELIVERY_STOP_NOTE_INDEX = {
+	"doctype": "Delivery Stop",
+	"fieldname": "delivery_note",
+	"property": "search_index",
+	"value": "1",
+}
+
 
 def get_property_setters():
 	return [
@@ -10,6 +19,7 @@ def get_property_setters():
 		{"doctype": "Employee", "fieldname": "date_of_joining", "property": "reqd", "value": "0"},
 		# a trip may be pickup-only, so delivery stops can't be mandatory
 		{"doctype": "Delivery Trip", "fieldname": "delivery_stops", "property": "reqd", "value": "0"},
+		DELIVERY_STOP_NOTE_INDEX,
 	]
 
 
