@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "creation": "2026-09-02 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "warehouse",
+  "reconciled_by",
+  "reconciled_on",
+  "qty_before",
+  "qty_after",
+  "qty_in",
+  "qty_out"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "reconciled_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Reconciled By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "reconciled_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Reconciled On",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "qty_before",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty Before Reco",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "qty_after",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty After Reco",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "description": "Received into this warehouse since the last reconciliation",
+   "fieldname": "qty_in",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty In After Reco",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "default": "0",
+   "description": "Sent out of this warehouse since the last reconciliation",
+   "fieldname": "qty_out",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty Out After Reco",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Warehouse Management",
+ "name": "Warehouse Item Reconciliation",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "idx",
+ "sort_order": "ASC",
+ "states": []
+}

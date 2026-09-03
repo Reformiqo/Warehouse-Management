@@ -31,6 +31,24 @@ def get_custom_fields():
 				"depends_on": "eval:!doc.is_group",
 			},
 		],
+		"Item": [
+			{
+				"fieldname": "reconciliation_section",
+				"label": "Last Reconciliation",
+				"fieldtype": "Section Break",
+				"insert_after": "image",
+				"collapsible": 1,
+			},
+			{
+				"fieldname": "warehouse_reconciliation",
+				"label": "Warehouse Reconciliation",
+				"fieldtype": "Table",
+				"options": "Warehouse Item Reconciliation",
+				"insert_after": "reconciliation_section",
+				"read_only": 1,
+				"no_copy": 1,
+			},
+		],
 		"User": [
 			{
 				"fieldname": "mpin",
@@ -91,4 +109,3 @@ def get_custom_fields():
 
 def create_fields():
 	create_custom_fields(get_custom_fields())
-

@@ -14,6 +14,8 @@ MISC_MASTER_DOCTYPE = "Hns Misc Master Details"
 # filter - the label shown to the user is `value`
 MISC_MASTER_GROUP = "Delivery By"
 EXCLUDED_USERS = ("Administrator", "Guest")
+# Drivers are Active / Suspended / Left - only Active ones can take a trip
+DRIVER_ACTIVE_STATUS = "Active"
 
 # (doctype, label, extra filters) — Material Transfer is a Stock Entry purpose
 RECENT_SOURCES = [
@@ -274,6 +276,64 @@ def courier_list(search=None, limit=None, offset=None):
 		return success(data=couriers)
 	except Exception as e:
 		frappe.log_error(title="Courier list failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["GET"])
+def driver_list(search=None, limit=None, offset=None):
+	"""Return Active Drivers, for the Delivery Trip driver picker. Suspended and
+	Left drivers are left out. Query params, all optional: `search` (matches the
+	full name), `limit` (default 20) and `offset` (rows to skip, default 0).
+	"""
+	try:
+		search = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
+		filters = {"status": DRIVER_ACTIVE_STATUS}
+		if search:
+			filters["full_name"] = ["like", f"%{search}%"]
+
+		drivers = frappe.get_all(
+			"Driver",
+			filters=filters,
+			fields=["name as driver_id", "full_name as driver_name"],
+			order_by="full_name",
+			limit_start=offset,
+			limit_page_length=limit,
+		)
+		return success(data=drivers)
+	except Exception as e:
+		frappe.log_error(title="Driver list failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["GET"])
+def vehicle_list(search=None, limit=None, offset=None):
+	"""Return Vehicles, for the Delivery Trip vehicle picker. The Vehicle id is
+	its license plate. Query params, all optional: `search` (matches the license
+	plate), `limit` (default 20) and `offset` (rows to skip, default 0).
+	"""
+	try:
+		search = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
+		filters = {"docstatus": ["<", 2]}
+		if search:
+			filters["license_plate"] = ["like", f"%{search}%"]
+
+		vehicles = frappe.get_all(
+			"Vehicle",
+			filters=filters,
+			fields=["name as vehicle_id", "license_plate as vehicle_no"],
+			order_by="license_plate",
+			limit_start=offset,
+			limit_page_length=limit,
+		)
+		return success(data=vehicles)
+	except Exception as e:
+		frappe.log_error(title="Vehicle list failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
 

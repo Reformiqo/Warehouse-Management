@@ -147,22 +147,60 @@ doc_events = {
 		"after_insert": "warehouse_management.api.profile.invalidate_stats_cache",
 	},
 	"Stock Reconciliation": {
-		"on_submit": "warehouse_management.api.profile.mark_warehouse_reconciled",
+		"on_submit": [
+			"warehouse_management.api.profile.mark_warehouse_reconciled",
+			(
+				"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+				".warehouse_item_reconciliation.update_reconciliation"
+			),
+		],
 	},
 	"Delivery Trip": {
 		"validate": "warehouse_management.api.delivery_trip.validate_has_stops_or_pickups",
 	},
+	# the three below re-total the item's qty in and out since its warehouse was
+	# last counted, which is what item enquiry displays
 	"Purchase Receipt": {
-		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+		"on_submit": [
+			"warehouse_management.utils.stamp_submitted_at",
+			(
+				"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+				".warehouse_item_reconciliation.update_movement"
+			),
+		],
+		"on_cancel": (
+			"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+			".warehouse_item_reconciliation.update_movement"
+		),
 	},
 	"Delivery Note": {
-		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+		"on_submit": [
+			"warehouse_management.utils.stamp_submitted_at",
+			(
+				"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+				".warehouse_item_reconciliation.update_movement"
+			),
+		],
+		"on_cancel": (
+			"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+			".warehouse_item_reconciliation.update_movement"
+		),
 	},
 	"Pick List": {
 		"on_submit": "warehouse_management.utils.stamp_submitted_at",
 	},
 	"Stock Entry": {
-		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+		"on_submit": [
+			"warehouse_management.utils.stamp_submitted_at",
+			(
+				"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+				".warehouse_item_reconciliation.update_movement"
+			),
+		],
+		"on_cancel": (
+			"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+			".warehouse_item_reconciliation.update_movement"
+		),
 	},
 	# every stock document writes ledger entries, so one hook here restricts
 	# a warehouse whose reconciliation is still pending
@@ -280,4 +318,3 @@ override_doctype_dashboards = {
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

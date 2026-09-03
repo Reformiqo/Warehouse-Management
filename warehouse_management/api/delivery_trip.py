@@ -162,6 +162,53 @@ def submit_delivery_trip(delivery_trip_id=None):
 		return error(str(e), 500)
 
 
+@frappe.whitelist(methods=["POST"])
+def save_delivery_trip(delivery_trip_id=None, driver_id=None, vehicle_id=None):
+	"""Set a new driver, a new vehicle or both on a draft Delivery Trip. The
+	driver name and address on the trip refresh from the driver on save.
+
+	Body: `{delivery_trip_id, driver_id, vehicle_id}` — the ids come from
+	driver_list and vehicle_list; at least one of the two is required.
+	"""
+	try:
+		delivery_trip_id = strip(cstr(delivery_trip_id))
+		driver_id = strip(cstr(driver_id))
+		vehicle_id = strip(cstr(vehicle_id))
+
+		validation_error = _validate_trip(delivery_trip_id) or _validate_driver_and_vehicle(
+			driver_id, vehicle_id
+		)
+		if validation_error:
+			return validation_error
+
+		trip = frappe.get_doc("Delivery Trip", delivery_trip_id)
+		if trip.docstatus != 0:
+			return error("A submitted delivery trip can no longer be changed.", 400)
+
+		if driver_id:
+			trip.driver = driver_id
+		if vehicle_id:
+			trip.vehicle = vehicle_id
+
+		trip.flags.ignore_permissions = True
+		trip.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		return success(
+			data={
+				"delivery_trip_id": trip.name,
+				"driver_id": trip.driver,
+				"driver_name": trip.driver_name,
+				"vehicle_no": trip.vehicle,
+				"message": "Delivery trip saved.",
+			}
+		)
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(title="Delivery trip save failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
 def validate_has_stops_or_pickups(doc, method=None):
 	"""A trip must carry work. delivery_stops is no longer mandatory so that
 	pickup-only trips can be saved, which leaves an empty trip valid otherwise.
@@ -188,6 +235,19 @@ def _validate_trip(delivery_trip_id):
 
 	if not frappe.db.exists("Delivery Trip", delivery_trip_id):
 		return error(f"Delivery Trip '{delivery_trip_id}' not found.", 404)
+
+
+def _validate_driver_and_vehicle(driver_id, vehicle_id):
+	"""Return an error, or None when at least one of the two is given and each
+	one given exists."""
+	if not driver_id and not vehicle_id:
+		return error("Please provide a driver_id or a vehicle_id.", 400)
+
+	if driver_id and not frappe.db.exists("Driver", driver_id):
+		return error(f"Driver '{driver_id}' not found.", 404)
+
+	if vehicle_id and not frappe.db.exists("Vehicle", vehicle_id):
+		return error(f"Vehicle '{vehicle_id}' not found.", 404)
 
 
 def _unvisited_count(delivery_trip_id):

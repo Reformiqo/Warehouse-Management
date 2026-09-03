@@ -13,6 +13,9 @@ from warehouse_management.utils import (
 	item_search_filters,
 )
 from warehouse_management.utils.response import error, success
+from warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation.warehouse_item_reconciliation import (
+	get_item_reconciliation,
+)
 
 DEFAULT_LIMIT = 20
 # standard_sale_price is read off this Price List
@@ -83,7 +86,9 @@ def item_detail(item_code=None):
 
 	Query param: `item_code` (required). last_purchase_rate and
 	avg_purchase_price are stored on the Item; standard_sale_price is the mean
-	of the item's Standard Selling prices.
+	of the item's Standard Selling prices. `reconciliation` is served straight
+	off Warehouse Item Reconciliation — per warehouse, the last count and the
+	stock in and out since it.
 	"""
 	try:
 		item_code = frappe.utils.strip(frappe.utils.cstr(item_code))
@@ -97,6 +102,7 @@ def item_detail(item_code=None):
 		return success(
 			data={
 				"warehouse_wise_stock": _get_warehouse_details(item_code),
+				"reconciliation": get_item_reconciliation(item_code),
 				"pending_sales_orders": get_pending_sales_orders(item_code, OPEN_SO_STATUSES),
 				"recent_movement": _get_recent_movement(item_code),
 				"last_purchase_rate": rates["last_purchase_rate"],
