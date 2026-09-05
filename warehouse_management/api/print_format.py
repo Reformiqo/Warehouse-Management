@@ -61,3 +61,44 @@ def sales_order_pdf(sales_order_id=None, print_format=None):
 	except Exception as e:
 		frappe.log_error(title="Sales Order PDF failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
+
+@frappe.whitelist(methods=["GET"])
+def item_barcode_label_html(item_code=None):
+	"""Render an Item through its default print format as HTML, for the Android
+	app to show in a WebView.
+
+	Query param: `item_code` (required).
+	"""
+	return _label_html("Item", "item_code", item_code)
+
+
+@frappe.whitelist(methods=["GET"])
+def warehouse_barcode_label_html(warehouse=None):
+	"""Render a Warehouse through its default print format as HTML, for the
+	Android app to show in a WebView.
+
+	Query param: `warehouse` (required, the warehouse id).
+	"""
+	return _label_html("Warehouse", "warehouse", warehouse)
+
+
+def _label_html(doctype, param, docname):
+	"""get_print with no print_format, so the doctype's default is what renders -
+	the format is chosen in Desk, never by the caller.
+	"""
+	try:
+		docname = frappe.utils.strip(frappe.utils.cstr(docname))
+		if not docname:
+			return error(f"Please provide a {param}.", 400)
+
+		if not frappe.db.exists(doctype, docname):
+			return error(f"{doctype} '{docname}' not found.", 404)
+
+		if not frappe.has_permission(doctype, "read", doc=docname):
+			return error(f"Not permitted to print {doctype} '{docname}'.", 403)
+
+		return success(data={"html": frappe.get_print(doctype, docname)})
+	except Exception as e:
+		frappe.log_error(title=f"{doctype} label HTML failed", message=frappe.get_traceback())
+		return error(str(e), 500)

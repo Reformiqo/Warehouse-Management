@@ -12,6 +12,16 @@ DELIVERY_STOP_NOTE_INDEX = {
 }
 
 
+# so print/preview reaches for the 30x20 label without the caller naming a format
+ITEM_BARCODE_LABEL_DEFAULT = {
+	"doctype": "Item",
+	"doctype_or_field": "DocType",
+	"property": "default_print_format",
+	"property_type": "Data",
+	"value": "Item Barcode Label 30x20",
+}
+
+
 def get_property_setters():
 	return [
 		{"doctype": "Employee", "fieldname": "gender", "property": "reqd", "value": "0"},
@@ -20,6 +30,7 @@ def get_property_setters():
 		# a trip may be pickup-only, so delivery stops can't be mandatory
 		{"doctype": "Delivery Trip", "fieldname": "delivery_stops", "property": "reqd", "value": "0"},
 		DELIVERY_STOP_NOTE_INDEX,
+		ITEM_BARCODE_LABEL_DEFAULT,
 	]
 
 
