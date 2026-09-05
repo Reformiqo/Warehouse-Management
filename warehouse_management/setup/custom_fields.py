@@ -64,6 +64,19 @@ def get_custom_fields():
 				"insert_after": "remark",
 			},
 		],
+		# the pick list an order is being picked on, kept by api/pick_list.py
+		"Sales Order": [
+			{
+				"fieldname": "pick_list",
+				"label": "Pick List",
+				"fieldtype": "Link",
+				"options": "Pick List",
+				"insert_after": "per_picked",
+				"read_only": 1,
+				"no_copy": 1,
+				"allow_on_submit": 1,
+			},
+		],
 		"User": [
 			{
 				"fieldname": "mpin",

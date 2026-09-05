@@ -78,10 +78,10 @@ doctype_js = {"Delivery Trip": "public/js/delivery_trip.js"}
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "warehouse_management.utils.jinja_methods",
-# 	"filters": "warehouse_management.utils.jinja_filters"
-# }
+jinja = {
+	"methods": ["warehouse_management.utils.barcode.get_barcode_image"],
+	# "filters": "warehouse_management.utils.jinja_filters"
+}
 
 # Installation
 # ------------
@@ -187,7 +187,13 @@ doc_events = {
 		),
 	},
 	"Pick List": {
+		"after_insert": "warehouse_management.api.pick_list.link_sales_order_pick_list",
 		"on_submit": "warehouse_management.utils.stamp_submitted_at",
+		"on_cancel": "warehouse_management.api.pick_list.unlink_sales_order_pick_list",
+		"on_trash": "warehouse_management.api.pick_list.unlink_sales_order_pick_list",
+	},
+	"Sales Order": {
+		"on_cancel": "warehouse_management.api.pick_list.cancel_linked_pick_lists",
 	},
 	"Stock Entry": {
 		"on_submit": [

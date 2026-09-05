@@ -15,7 +15,8 @@ PACKING_SLIP_FIELD = "custom_packing_slip"
 def open_so(limit=None, offset=None):
 	"""Return open Sales Orders (To Deliver and Bill / To Deliver) that
 	still need picking, each flagged with whether every pending item is
-	already sitting in its own warehouse.
+	already sitting in its own warehouse. Orders already on a pick list are
+	left out - Sales Order.pick_list is set from the draft on.
 
 	Query params, both optional: `limit` (default 20) and `offset`
 	(rows to skip, default 0). Availability is resolved for the returned
@@ -33,6 +34,7 @@ def open_so(limit=None, offset=None):
 			FROM `tabSales Order` sales_order
 			INNER JOIN `tabSales Order Item` so_item ON so_item.parent = sales_order.name
 			WHERE sales_order.status IN %(statuses)s
+			  AND IFNULL(sales_order.pick_list, '') = ''
 			GROUP BY sales_order.name
 			ORDER BY sales_order.transaction_date DESC
 			LIMIT %(limit)s OFFSET %(offset)s
@@ -264,6 +266,38 @@ def pack_pick_list(pick_list_id=None, items=None):
 		frappe.db.rollback()
 		frappe.log_error(title="Pick list packing failed", message=frappe.get_traceback())
 		return error(str(e), 500)
+
+
+def link_sales_order_pick_list(doc, method=None):
+	"""hooks.py doc_events target for Pick List after_insert: every sales order
+	it picks for points at it, from the draft on."""
+	for sales_order in {row.sales_order for row in doc.locations if row.sales_order}:
+		frappe.db.set_value("Sales Order", sales_order, "pick_list", doc.name, update_modified=False)
+
+
+def unlink_sales_order_pick_list(doc, method=None):
+	"""hooks.py doc_events target for Pick List on_cancel and on_trash: the
+	orders pointing here let go. This is also what lets a pick list cancel at
+	all — the submitted order holding a link to it would otherwise block that.
+	"""
+	frappe.db.set_value(
+		"Sales Order", {"pick_list": doc.name}, "pick_list", None, update_modified=False
+	)
+
+
+def cancel_linked_pick_lists(doc, method=None):
+	"""hooks.py doc_events target for Sales Order on_cancel: a submitted pick
+	list stops the order cancelling at all, so it goes with the order."""
+	pick_lists = frappe.get_all(
+		"Pick List Item",
+		filters={"sales_order": doc.name, "docstatus": 1},
+		pluck="parent",
+		distinct=True,
+	)
+	for pick_list in pick_lists:
+		pick_list_doc = frappe.get_doc("Pick List", pick_list)
+		pick_list_doc.flags.ignore_permissions = True
+		pick_list_doc.cancel()
 
 
 def _delivery_notes_for(pick_list_id):
