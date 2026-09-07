@@ -91,33 +91,56 @@ def delivery_trip_details(delivery_trip_id=None):
 
 @frappe.whitelist(methods=["POST"])
 def create_delivery_trip(driver_id=None, vehicle_id=None, departure_time=None, delivery_notes=None):
-	"""Create one Delivery Trip as a draft through erpnext's own
+	"""Create and submit one Delivery Trip through erpnext's own
 	make_delivery_trip, a stop per Delivery Note — the mapping the desk runs
-	under "Get stops from > Delivery Note", which checks the rest itself.
+	under "Get stops from > Delivery Note", which checks the rest itself. The
+	submitted trip lands on Scheduled, with none of its stops visited yet.
 
-	Body: `{driver_id, vehicle_id, departure_time, delivery_notes}` — the ids
-	come from driver_list and vehicle_list, delivery_notes is a list of the
-	delivery_note_id values pending_delivery_notes returns, and departure_time
-	reads "YYYY-MM-DD HH:mm:ss". The stops keep the order the notes are sent in.
+	Body: `{driver_id, vehicle_id, departure_time, delivery_notes}` — the driver
+	and vehicle ids come from driver_list and vehicle_list, departure_time reads
+	"YYYY-MM-DD HH:mm:ss", and delivery_notes is a list of `{delivery_note_id,
+	address_id}` rows — address_id comes from customer_addresses and is needed
+	only for a note carrying no address of its own. Stops keep the order sent.
 	"""
 	try:
-		note_names = (
-			frappe.parse_json(delivery_notes) if isinstance(delivery_notes, str) else delivery_notes
-		)
+		rows = frappe.parse_json(delivery_notes) if isinstance(delivery_notes, str) else delivery_notes
+		note_rows = [
+			(strip(cstr(row.get("delivery_note_id"))), strip(cstr(row.get("address_id"))) or None)
+			for row in rows or []
+		]
+
+		validation_error = _validate_delivery_notes(note_rows)
+		if validation_error:
+			return validation_error
 
 		trip = frappe.new_doc("Delivery Trip")
-		for note_name in note_names or []:
+		for note_name, _address_id in note_rows:
 			make_delivery_trip(note_name, trip)
+
+		# a note can be delivered to any of its customer's addresses, so each
+		# stop takes the one picked for its own note. Clearing the display the
+		# note was mapped with lets erpnext's validate rebuild it from that one
+		picked = {note_name: address_id for note_name, address_id in note_rows if address_id}
+		for stop in trip.delivery_stops:
+			address_id = picked.get(stop.delivery_note)
+			if address_id:
+				stop.address = address_id
+				stop.customer_address = None
 
 		trip.driver = driver_id
 		trip.vehicle = vehicle_id
 		trip.departure_time = departure_time
 		trip.flags.ignore_permissions = True
 		trip.insert(ignore_permissions=True)
+		trip.submit()
 		frappe.db.commit()
 
 		return success(
-			data={"delivery_trip_id": trip.name, "message": "Delivery trip created."},
+			data={
+				"delivery_trip_id": trip.name,
+				"status": trip.status,
+				"message": "Delivery trip created.",
+			},
 			http_status=201,
 		)
 	except Exception as e:
@@ -132,7 +155,7 @@ def mark_visited(
 ):
 	"""Tick or clear visited on one stop or pickup of a Delivery Trip, with what
 	the driver saw at the stop and the proof of delivery. The trip's status is
-	refreshed after the write, the way erpnext's own update_status does it.
+	refreshed after the write over both stops and pickups.
 
 	Body: `{delivery_trip_id, row_type, row_id, visited, remark, attachment}` —
 	row_type is "stop" or "pickup", row_id the `row_id` from the details
@@ -173,14 +196,13 @@ def mark_visited(
 			_attach_to_trip(attachment, delivery_trip_id)
 
 		frappe.db.set_value(child_doctype, row_id, visit)
-		trip = frappe.get_doc("Delivery Trip", delivery_trip_id)
-		trip.update_status()
+		status = _update_trip_status(delivery_trip_id)
 		frappe.db.commit()
 
 		return success(
 			data={
 				"delivery_trip_id": delivery_trip_id,
-				"status": trip.status,
+				"status": status,
 				"row_type": row_type,
 				"row_id": row_id,
 				"visited": bool(visited),
@@ -289,6 +311,59 @@ def pending_delivery_notes(search=None, limit=None, offset=None):
 		return error(str(e), 500)
 
 
+@frappe.whitelist(methods=["GET"])
+def customer_addresses(customer=None):
+	"""Return the enabled addresses of one customer, so a stop can be pointed at
+	the right one. erpnext fills a delivery note's address by itself when the
+	customer keeps only one, and leaves it empty when there are several.
+
+	Query param: `customer` (required) — the customer a delivery note carries.
+	"""
+	try:
+		customer = strip_link_marker(frappe.utils.strip_html(cstr(customer)))
+
+		if not customer:
+			return error("Please provide a customer.", 400)
+
+		if not frappe.db.exists("Customer", customer):
+			return error(f"Customer '{customer}' not found.", 404)
+
+		# a party is tied to its addresses through the Dynamic Link child table
+		addresses = frappe.get_all(
+			"Address",
+			filters=[
+				["Address", "disabled", "=", 0],
+				["Dynamic Link", "link_doctype", "=", "Customer"],
+				["Dynamic Link", "link_name", "=", customer],
+			],
+			fields=[
+				"name",
+				"address_title",
+				"address_line1",
+				"address_line2",
+				"city",
+				"state",
+				"pincode",
+			],
+			order_by="is_shipping_address desc, is_primary_address desc, address_title",
+			distinct=True,
+		)
+
+		return success(
+			data=[
+				{
+					"address_id": address.name,
+					"address_title": address.address_title or None,
+					"address": _full_address(address),
+				}
+				for address in addresses
+			]
+		)
+	except Exception as e:
+		frappe.log_error(title="Customer addresses failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
 def validate_has_stops_or_pickups(doc, method=None):
 	"""A trip must carry work. delivery_stops is no longer mandatory so that
 	pickup-only trips can be saved, which leaves an empty trip valid otherwise.
@@ -328,6 +403,45 @@ def _validate_trip(delivery_trip_id):
 		return error(f"Delivery Trip '{delivery_trip_id}' not found.", 404)
 
 
+def _validate_delivery_notes(note_rows):
+	"""Return an error, or None when every note exists and ends up with an
+	address — erpnext reads the stop's address back on validate, so a note
+	carrying none has to be sent with one picked from customer_addresses.
+	"""
+	if not note_rows:
+		return error("Please provide at least one delivery note.", 400)
+
+	note_names = [note_name for note_name, _address_id in note_rows]
+	notes = {
+		note.name: note
+		for note in frappe.get_all(
+			"Delivery Note",
+			filters={"name": ["in", note_names]},
+			fields=["name", "shipping_address_name", "customer_address"],
+		)
+	}
+
+	missing = [name for name in note_names if name not in notes]
+	if missing:
+		return error(f"Delivery Note '{missing[0]}' not found.", 404)
+
+	unaddressed = [
+		note_name
+		for note_name, address_id in note_rows
+		if not address_id
+		and not (notes[note_name].shipping_address_name or notes[note_name].customer_address)
+	]
+	if unaddressed:
+		return error(
+			"These delivery notes carry no address, send an address_id for each: " + ", ".join(unaddressed),
+			400,
+		)
+
+	for _note_name, address_id in note_rows:
+		if address_id and not frappe.db.exists("Address", address_id):
+			return error(f"Address '{address_id}' not found.", 404)
+
+
 def _validate_driver_and_vehicle(driver_id, vehicle_id):
 	"""Return an error, or None when at least one of the two is given and each
 	one given exists."""
@@ -339,6 +453,29 @@ def _validate_driver_and_vehicle(driver_id, vehicle_id):
 
 	if vehicle_id and not frappe.db.exists("Vehicle", vehicle_id):
 		return error(f"Vehicle '{vehicle_id}' not found.", 404)
+
+
+def _update_trip_status(delivery_trip_id):
+	"""erpnext's update_status only reads delivery_stops, so a visited pickup
+	never moves the trip. Same rules, but over stops and pickups together."""
+	docstatus = cint(frappe.db.get_value("Delivery Trip", delivery_trip_id, "docstatus"))
+	status = {0: "Draft", 1: "Scheduled", 2: "Cancelled"}[docstatus]
+
+	if docstatus == 1:
+		visited = []
+		for child_doctype in ROW_DOCTYPES.values():
+			visited += frappe.get_all(
+				child_doctype,
+				filters={"parent": delivery_trip_id, "parenttype": "Delivery Trip"},
+				pluck="visited",
+			)
+		if visited and all(visited):
+			status = "Completed"
+		elif any(visited):
+			status = "In Transit"
+
+	frappe.db.set_value("Delivery Trip", delivery_trip_id, "status", status)
+	return status
 
 
 def _unvisited_count(delivery_trip_id):
@@ -634,8 +771,13 @@ def _addresses(address_names):
 		filters={"name": ["in", address_names]},
 		fields=["name", "address_line1", "address_line2", "city", "state", "pincode"],
 	)
-	return {
-		address.name: ", ".join(
+	return {address.name: _full_address(address) for address in addresses}
+
+
+def _full_address(address):
+	"""One comma-joined line from an address row, the blank parts dropped."""
+	return (
+		", ".join(
 			part
 			for part in (
 				address.address_line1,
@@ -647,8 +789,7 @@ def _addresses(address_names):
 			if part
 		)
 		or None
-		for address in addresses
-	}
+	)
 
 
 def _contacts(contact_names):
