@@ -337,6 +337,35 @@ def vehicle_list(search=None, limit=None, offset=None):
 		return error(str(e), 500)
 
 
+@frappe.whitelist(methods=["GET"])
+def employee_list(search=None, limit=None, offset=None):
+	"""Return Active Employees, for the assignment employee picker. Query
+	params, all optional: `search` (matches the employee name),
+	`limit` (default 20) and `offset` (rows to skip, default 0).
+	"""
+	try:
+		search = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(search)))
+		limit = cint(limit) or DEFAULT_LIMIT
+		offset = cint(offset)
+
+		filters = {"status": "Active"}
+		if search:
+			filters["employee_name"] = ["like", f"%{search}%"]
+
+		employees = frappe.get_all(
+			"Employee",
+			filters=filters,
+			fields=["name as emp_id", "employee_name as emp_name"],
+			order_by="employee_name",
+			limit_start=offset,
+			limit_page_length=limit,
+		)
+		return success(data=employees)
+	except Exception as e:
+		frappe.log_error(title="Employee list failed", message=frappe.get_traceback())
+		return error(str(e), 500)
+
+
 def _recent_for(doctype, label, extra_filters):
 	"""The caller's last RECENT_LIMIT submitted docs of one doctype, newest
 	first, by the submitted_at custom field (see setup/custom_fields.py — it

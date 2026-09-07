@@ -50,11 +50,10 @@ def profile():
 
 @frappe.whitelist(methods=["GET"])
 def team_status():
-	"""Return today's warehouse assignments: who is on which warehouse,
-	how many tasks they have, and whether they are done. One row per
-	assignment, so someone on two warehouses appears once per warehouse.
-	No input required. Not being allowed to see the team is a normal state,
-	not an error, so it comes back as permitted=False rather than a 403.
+	"""Return today's assignments as one row per employee: their whole day's
+	task counts and status, summed over every warehouse they are on. No input
+	required. Not being allowed to see the team is a normal state, not an
+	error, so it comes back as permitted=False.
 	"""
 	try:
 		if TEAM_STATUS_ROLE not in frappe.get_roles():
@@ -66,7 +65,6 @@ def team_status():
 				assignment.employee AS emp_id,
 				employee.employee_name AS emp_name,
 				employee.designation,
-				assignment.warehouse,
 				assignment.total_tasks,
 				COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
 					AS completed_tasks
@@ -81,10 +79,7 @@ def team_status():
 			{"today": frappe.utils.today()},
 			as_dict=True,
 		)
-		for row in rows:
-			row["status"] = _task_status(row.completed_tasks, row.total_tasks)
-
-		return success(data=rows, permitted=True)
+		return success(data=_group_by_employee(rows), permitted=True)
 	except Exception as e:
 		frappe.log_error(title="Team status lookup failed", message=frappe.get_traceback())
 		return error(str(e), 500)
@@ -152,6 +147,31 @@ def mark_warehouse_reconciled(doc, method=None):
 		"initial_reconciliation",
 		1,
 	)
+
+
+def _group_by_employee(rows):
+	"""Fold the per-assignment rows into one row per employee — they hold one
+	assignment per warehouse, so their day is the sum of those.
+	"""
+	employees = {}
+	for row in rows:
+		employee = employees.setdefault(
+			row.emp_id,
+			{
+				"emp_id": row.emp_id,
+				"emp_name": row.emp_name,
+				"designation": row.designation,
+				"total_tasks": 0,
+				"completed_tasks": 0,
+			},
+		)
+		employee["total_tasks"] += row.total_tasks or 0
+		employee["completed_tasks"] += row.completed_tasks or 0
+
+	for employee in employees.values():
+		employee["status"] = _task_status(employee["completed_tasks"], employee["total_tasks"])
+
+	return list(employees.values())
 
 
 def _task_status(completed_tasks, total_tasks):
