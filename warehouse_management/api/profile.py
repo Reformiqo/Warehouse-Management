@@ -81,6 +81,9 @@ def team_status():
 			{"today": frappe.utils.today()},
 			as_dict=True,
 		)
+		for row in rows:
+			row["status"] = _task_status(row.completed_tasks, row.total_tasks)
+
 		return success(data=rows, permitted=True)
 	except Exception as e:
 		frappe.log_error(title="Team status lookup failed", message=frappe.get_traceback())
@@ -151,6 +154,14 @@ def mark_warehouse_reconciled(doc, method=None):
 	)
 
 
+def _task_status(completed_tasks, total_tasks):
+	"""Not Started / In Progress / Completed for a set of tasks."""
+	if not completed_tasks:
+		return "Not Started"
+
+	return "In Progress" if completed_tasks < total_tasks else "Completed"
+
+
 def _daily_reconciliation_status(user):
 	"""(progress, has_task) for today's Warehouse Daily Assignments.
 
@@ -190,15 +201,8 @@ def _daily_reconciliation_status(user):
 	total_tasks = sum(row.total_tasks or 0 for row in rows)
 	completed_tasks = sum(row.completed_tasks or 0 for row in rows)
 
-	if not completed_tasks:
-		status = "Not Started"
-	elif completed_tasks < total_tasks:
-		status = "In Progress"
-	else:
-		status = "Completed"
-
 	return {
-		"status": status,
+		"status": _task_status(completed_tasks, total_tasks),
 		"percentage": flt(completed_tasks / total_tasks * 100, 2) if total_tasks else 0.0,
 		"total_tasks": total_tasks,
 		"completed_tasks": completed_tasks,
