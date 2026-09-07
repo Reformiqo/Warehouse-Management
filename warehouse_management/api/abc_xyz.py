@@ -1,10 +1,15 @@
 import frappe
-from erpnext.accounts.utils import get_fiscal_year
 from frappe.query_builder.functions import Sum
-from frappe.utils import add_months, cint, flt, get_first_day, getdate, today
+from frappe.utils import add_months, cint, flt, get_first_day, get_last_day, getdate, today
 
 from warehouse_management.utils import strip_link_marker
 from warehouse_management.utils.response import error, success
+
+WINDOW_MONTHS = 12
+# the sliders move abc_a_threshold and x_threshold; the upper cut of each pair
+# is pinned, so these bounds keep a slider from crossing it
+ABC_A_RANGE = (0.10, 0.94)
+X_RANGE = (0.05, 0.95)
 
 
 @frappe.whitelist(methods=["GET"])
@@ -13,11 +18,11 @@ def get_abc_xyz(
 	abc_a_threshold=0.80,
 	abc_b_threshold=0.95,
 	x_threshold=0.10,
-	y_threshold=0.25,
+	y_threshold=0.95,
 	include_demand=0,
 ):
-	"""Classify every item sold in the current fiscal year as ABC (share of
-	sales value) by XYZ (month-to-month demand variability).
+	"""Classify every item sold in the rolling 12-month window as ABC (share
+	of sales value) by XYZ (month-to-month demand variability).
 
 	Query params, all optional: `company` (defaults to the user's default
 	Company), the four thresholds, and `include_demand=1` to also return each
@@ -41,12 +46,9 @@ def get_abc_xyz(
 		if invalid:
 			return error(invalid, 400)
 
-		fiscal_year = get_fiscal_year(today(), company=company, as_dict=True, raise_on_missing=False)
-		if not fiscal_year:
-			return error(f"No active Fiscal Year covers today for '{company}'.", 404)
-
-		periods = _get_month_periods(fiscal_year.year_start_date, fiscal_year.year_end_date)
-		items = _get_item_sales(company, fiscal_year, periods)
+		from_date, to_date = _get_window()
+		periods = _get_month_periods(from_date, to_date)
+		items = _get_item_sales(company, from_date, to_date, periods)
 
 		_calculate_statistics(items)
 		_calculate_abc(items, thresholds["abc_a_threshold"], thresholds["abc_b_threshold"])
@@ -55,9 +57,8 @@ def get_abc_xyz(
 		return success(
 			data={
 				"company": company,
-				"fiscal_year": fiscal_year.name,
-				"from_date": fiscal_year.year_start_date,
-				"to_date": fiscal_year.year_end_date,
+				"from_date": from_date,
+				"to_date": to_date,
 				"periods": periods,
 				"thresholds": thresholds,
 				"summary": _build_summary(items),
@@ -71,17 +72,32 @@ def get_abc_xyz(
 
 def _validate_thresholds(thresholds):
 	"""Message for an unusable threshold set, None when they are fine."""
-	if not 0 < thresholds["abc_a_threshold"] < thresholds["abc_b_threshold"] <= 1:
-		return "Thresholds must satisfy 0 < abc_a_threshold < abc_b_threshold <= 1."
+	if not ABC_A_RANGE[0] <= thresholds["abc_a_threshold"] <= ABC_A_RANGE[1]:
+		return f"abc_a_threshold must be between {ABC_A_RANGE[0]} and {ABC_A_RANGE[1]}."
 
-	if not 0 <= thresholds["x_threshold"] < thresholds["y_threshold"]:
-		return "Thresholds must satisfy 0 <= x_threshold < y_threshold."
+	if not X_RANGE[0] <= thresholds["x_threshold"] <= X_RANGE[1]:
+		return f"x_threshold must be between {X_RANGE[0]} and {X_RANGE[1]}."
+
+	if not thresholds["abc_a_threshold"] < thresholds["abc_b_threshold"] <= 1:
+		return "abc_b_threshold must be above abc_a_threshold and at most 1."
+
+	if not thresholds["x_threshold"] <= thresholds["y_threshold"]:
+		return "y_threshold must be at least x_threshold."
 
 	return None
 
 
+def _get_window():
+	"""(from_date, to_date) spanning the rolling window. The running month is
+	left out so no bucket is a part-month that understates demand.
+	"""
+	to_date = get_last_day(add_months(getdate(today()), -1))
+	from_date = get_first_day(add_months(to_date, -(WINDOW_MONTHS - 1)))
+	return from_date, to_date
+
+
 def _get_month_periods(from_date, to_date):
-	"""["YYYY-MM", ...], one key per month the fiscal year spans."""
+	"""["YYYY-MM", ...], one key per month in the window."""
 	periods = []
 	cursor = get_first_day(getdate(from_date))
 	last = get_first_day(getdate(to_date))
@@ -93,10 +109,10 @@ def _get_month_periods(from_date, to_date):
 	return periods
 
 
-def _get_item_sales(company, fiscal_year, periods):
-	"""One row per item ordered in the fiscal year, holding its sales value
-	and its demand quantity bucketed into `periods`. Warehouses are summed
-	together, so an item stocked in several places stays a single row.
+def _get_item_sales(company, from_date, to_date, periods):
+	"""One row per item ordered in the window, holding its sales value and its
+	demand quantity bucketed into `periods`. Warehouses are summed together,
+	so an item stocked in several places stays a single row.
 	"""
 	so = frappe.qb.DocType("Sales Order")
 	so_item = frappe.qb.DocType("Sales Order Item")
@@ -115,8 +131,8 @@ def _get_item_sales(company, fiscal_year, periods):
 		.where(
 			(so.docstatus == 1)
 			& (so.company == company)
-			& (so.transaction_date >= fiscal_year.year_start_date)
-			& (so.transaction_date <= fiscal_year.year_end_date)
+			& (so.transaction_date >= from_date)
+			& (so.transaction_date <= to_date)
 		)
 		.groupby(so_item.item_code, so_item.item_name, so.transaction_date)
 	).run(as_dict=True)
@@ -145,11 +161,11 @@ def _get_item_sales(company, fiscal_year, periods):
 
 def _calculate_statistics(items):
 	"""Mean, population standard deviation and coefficient of variation of the
-	monthly demand series. Months without an order count as a real zero.
+	monthly demand. A month without an order counts as a real zero.
 	"""
 	for item in items:
 		demand_values = item["demand_values"]
-		months = len(demand_values) or 1
+		months = len(demand_values)
 
 		mean_demand = sum(demand_values) / months
 		variance = sum((value - mean_demand) ** 2 for value in demand_values) / months
