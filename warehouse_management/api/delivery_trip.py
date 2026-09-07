@@ -10,12 +10,14 @@ from warehouse_management.utils.response import error, success
 DEFAULT_LIMIT = 20
 ROW_DOCTYPES = {"stop": "Delivery Stop", "pickup": "Delivery Trip Pickup Detail"}
 PACKING_SLIP_DOCTYPE = "Hns Packing Slip"
+TRIP_LIST_STATUSES = ["Scheduled", "In Transit"]
 
 
 @frappe.whitelist(methods=["GET"])
 def delivery_trip(limit=None, offset=None):
-	"""Return every Delivery Trip with its driver, vehicle no and its delivery
-	and pickup counts — the delivery stops and pickup rows on the trip.
+	"""Return every Scheduled or In Transit Delivery Trip with its driver,
+	vehicle no and its delivery and pickup counts — the delivery stops and
+	pickup rows on the trip.
 
 	Query params, both optional: `limit` (default 20) and `offset` (rows to
 	skip, default 0).
@@ -27,8 +29,10 @@ def delivery_trip(limit=None, offset=None):
 				"name AS delivery_trip_id",
 				"driver_name",
 				"vehicle AS vehicle_no",
-				"departure_time"
+				"departure_time",
+				"status",
 			],
+			filters={"status": ["in", TRIP_LIST_STATUSES]},
 			order_by="departure_time desc",
 			limit_page_length=cint(limit) or DEFAULT_LIMIT,
 			limit_start=cint(offset),
@@ -52,8 +56,7 @@ def delivery_trip_details(delivery_trip_id=None):
 	"""Return one Delivery Trip with its stops and its pickups. A stop carries
 	its Delivery Note, that note's Sales Invoices and customer PO; a pickup
 	carries the Purchase Order being collected. Both carry party name,
-	address and contact. is_submitted tells the client the trip is closed,
-	so it can drop the mark-as-visited action.
+	address and contact.
 
 	Query param: `delivery_trip_id` (required).
 	"""
@@ -73,12 +76,10 @@ def delivery_trip_details(delivery_trip_id=None):
 				"driver_name",
 				"vehicle AS vehicle_no",
 				"departure_time",
-				"docstatus",
+				"status",
 			],
 			as_dict=True,
 		)
-		# cancelled counts as submitted here: either way the trip is closed
-		trip["is_submitted"] = trip.pop("docstatus") != 0
 		trip["stops"] = _trip_stops(delivery_trip_id)
 		trip["pickups"] = _trip_pickups(delivery_trip_id)
 
@@ -130,7 +131,8 @@ def mark_visited(
 	delivery_trip_id=None, row_type=None, row_id=None, visited=1, remark=None, attachment=None
 ):
 	"""Tick or clear visited on one stop or pickup of a Delivery Trip, with what
-	the driver saw at the stop and the proof of delivery.
+	the driver saw at the stop and the proof of delivery. The trip's status is
+	refreshed after the write, the way erpnext's own update_status does it.
 
 	Body: `{delivery_trip_id, row_type, row_id, visited, remark, attachment}` —
 	row_type is "stop" or "pickup", row_id the `row_id` from the details
@@ -156,6 +158,12 @@ def mark_visited(
 			return error("Please provide a row_id.", 400)
 
 		child_doctype = ROW_DOCTYPES[row_type]
+		if not frappe.db.exists(
+			child_doctype,
+			{"name": row_id, "parent": delivery_trip_id, "parenttype": "Delivery Trip"},
+		):
+			return error(f"Row '{row_id}' is not on Delivery Trip '{delivery_trip_id}'.", 404)
+
 		visited = cint(visited)
 		visit = {"visited": visited}
 		if remark:
@@ -165,11 +173,14 @@ def mark_visited(
 			_attach_to_trip(attachment, delivery_trip_id)
 
 		frappe.db.set_value(child_doctype, row_id, visit)
+		trip = frappe.get_doc("Delivery Trip", delivery_trip_id)
+		trip.update_status()
 		frappe.db.commit()
 
 		return success(
 			data={
 				"delivery_trip_id": delivery_trip_id,
+				"status": trip.status,
 				"row_type": row_type,
 				"row_id": row_id,
 				"visited": bool(visited),
