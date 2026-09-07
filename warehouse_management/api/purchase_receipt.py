@@ -21,11 +21,12 @@ def recent_prs():
 
 
 @frappe.whitelist(methods=["POST"])
-def create_purchase_receipt(po_id=None, items=None):
+def create_purchase_receipt(po_id=None, items=None, warehouse=None):
 	"""Create and submit a Purchase Receipt from a Purchase Order,
 	receiving only the given items at the given quantities.
 
-	Body: `{po_id, items}` — `items` is `{item_code: qty}`. Uses
+	Body: `{po_id, warehouse, items}` — `items` is `{item_code: qty}` and
+	the stock lands in the given warehouse, not the one on the PO. Uses
 	ERPNext's own make_purchase_receipt mapper so every row's
 	purchase_order/purchase_order_item reference is set correctly —
 	required for the PO's received_qty tracking to work.
@@ -38,6 +39,11 @@ def create_purchase_receipt(po_id=None, items=None):
 		if not frappe.db.exists("Purchase Order", po_id):
 			return error(f"Purchase Order '{po_id}' not found.", 404)
 
+		warehouse = frappe.utils.strip(frappe.utils.cstr(warehouse))
+		validation_error = _validate_warehouse(warehouse)
+		if validation_error:
+			return validation_error
+
 		item_qty_map = frappe.parse_json(items) if isinstance(items, str) else items
 		if not item_qty_map:
 			return error("Please provide items as {item_code: qty}.", 400)
@@ -47,12 +53,13 @@ def create_purchase_receipt(po_id=None, items=None):
 			return error(f"Purchase Order '{po_id}' has nothing pending to receive.", 400)
 
 		receipt = make_purchase_receipt(po_id)
-		receipt.items = _apply_received_items(receipt.items, item_qty_map)
+		receipt.set_warehouse = warehouse
+		receipt.items = _apply_received_items(receipt.items, item_qty_map, warehouse)
 		if not receipt.items:
 			return error("None of the given items are pending on this Purchase Order.", 400)
 
-		# This is their custom field, and mapped is setting this value as per po, which is wrong
-		receipt.create_purchase_receipt = ""
+		# the mapper copies this custom field off the PO, which is wrong here
+		receipt.custom_order_type = ""
 
 		receipt.flags.ignore_permissions = True
 		receipt.insert(ignore_permissions=True)
@@ -156,10 +163,29 @@ def _validate_cancellable(pr_id):
 	return None
 
 
-def _apply_received_items(rows, item_qty_map):
+def _validate_warehouse(warehouse):
+	"""Return an error, or None when stock can be received into this warehouse."""
+	if not warehouse:
+		return error("Please provide a warehouse.", 400)
+
+	details = frappe.db.get_value("Warehouse", warehouse, ["disabled", "is_group"], as_dict=True)
+	if not details:
+		return error(f"Warehouse '{warehouse}' not found.", 404)
+
+	if details.disabled:
+		return error(f"Warehouse '{warehouse}' is disabled.", 400)
+
+	if details.is_group:
+		return error(f"Warehouse '{warehouse}' is a group, so stock cannot be received into it.", 400)
+
+	return None
+
+
+def _apply_received_items(rows, item_qty_map, warehouse):
 	"""Keep only rows for items in item_qty_map, with qty overridden to
-	the requested amount. stock_qty is kept in step with qty, the same
-	way ERPNext's own PO->PR mapper sets it.
+	the requested amount and the stock pointed at the given warehouse.
+	received_qty is kept in step with qty, the same way ERPNext's own
+	PO->PR mapper sets it.
 	"""
 	kept_rows = []
 	for row in rows:
@@ -168,6 +194,7 @@ def _apply_received_items(rows, item_qty_map):
 
 		row.qty = flt(item_qty_map[row.item_code])
 		row.received_qty = row.qty
+		row.warehouse = warehouse
 		kept_rows.append(row)
 
 	return kept_rows

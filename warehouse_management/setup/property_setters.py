@@ -29,6 +29,13 @@ def get_property_setters():
 		{"doctype": "Employee", "fieldname": "date_of_joining", "property": "reqd", "value": "0"},
 		# a trip may be pickup-only, so delivery stops can't be mandatory
 		{"doctype": "Delivery Trip", "fieldname": "delivery_stops", "property": "reqd", "value": "0"},
+
+		{
+			"doctype": "Purchase Receipt",
+			"fieldname": "custom_order_type",
+			"property": "reqd",
+			"value": "0",
+		},
 		DELIVERY_STOP_NOTE_INDEX,
 		ITEM_BARCODE_LABEL_DEFAULT,
 	]
