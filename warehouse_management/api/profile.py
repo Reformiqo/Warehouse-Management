@@ -66,8 +66,7 @@ def team_status():
 				employee.employee_name AS emp_name,
 				employee.designation,
 				assignment.total_tasks,
-				COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
-					AS completed_tasks
+				COUNT(CASE WHEN task.is_completed = 1 THEN 1 END) AS completed_tasks
 			FROM `tabWarehouse Daily Assignment` assignment
 			INNER JOIN `tabEmployee` employee ON employee.name = assignment.employee
 			LEFT JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
@@ -203,8 +202,7 @@ def _daily_reconciliation_status(user):
 			assignment.total_tasks,
 			assignment.stock_reconciliation,
 			assignment.no_variation,
-			COUNT(DISTINCT CASE WHEN task.is_completed = 1 THEN task.item_code END)
-				AS completed_tasks
+			COUNT(CASE WHEN task.is_completed = 1 THEN 1 END) AS completed_tasks
 		FROM `tabWarehouse Daily Assignment` assignment
 		LEFT JOIN `tabWarehouse Daily Assignment Task` task ON task.parent = assignment.name
 		WHERE assignment.employee = %(employee)s

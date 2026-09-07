@@ -32,7 +32,7 @@ def assign_daily_warehouses():
 				"doctype": "Warehouse Daily Assignment",
 				"warehouse": warehouse,
 				"employee": employees[index % len(employees)],
-				"total_tasks": len({task["item_code"] for task in tasks}),
+				"total_tasks": len(tasks),
 				"assignment_date": frappe.utils.today(),
 				"tasks": tasks,
 			}

@@ -164,17 +164,15 @@ def _variation_label(user_counted, system_qty):
 
 
 def _progress(assignments, tasks):
-	"""Rollup over every assignment. Rows are per reference, so items count
-	once per assignment — the same item in two warehouses is two tasks.
+	"""Rollup over every assignment. One task row is one thing to count, so an
+	item that arrived on two vouchers counts twice.
 	"""
 	total_tasks = 0
 	for assignment in assignments:
-		items = {task["item_code"] for task in tasks if task["assignment_id"] == assignment.name}
-		total_tasks += assignment.total_tasks or len(items)
+		rows = [task for task in tasks if task["assignment_id"] == assignment.name]
+		total_tasks += assignment.total_tasks or len(rows)
 
-	completed_tasks = len(
-		{(task["assignment_id"], task["item_code"]) for task in tasks if task["is_completed"]}
-	)
+	completed_tasks = len([task for task in tasks if task["is_completed"]])
 	return total_tasks, completed_tasks
 
 

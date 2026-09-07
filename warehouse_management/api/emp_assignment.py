@@ -179,10 +179,10 @@ def _assignment_doc(employee, warehouse):
 
 
 def _save_assignment(assignment):
-	"""Save with total_tasks re-cut — it is a stored count of the distinct items
-	on the assignment, so moving rows has to refresh it.
+	"""Save with total_tasks re-cut — it is a stored count of the task rows on
+	the assignment, so moving rows has to refresh it.
 	"""
-	assignment.total_tasks = len({row.item_code for row in assignment.tasks})
+	assignment.total_tasks = len(assignment.tasks)
 	assignment.save(ignore_permissions=True)
 
 
