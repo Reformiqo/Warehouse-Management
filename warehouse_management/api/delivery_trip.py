@@ -267,9 +267,9 @@ def save_delivery_trip(delivery_trip_id=None, driver_id=None, vehicle_id=None):
 @frappe.whitelist(methods=["GET"])
 def pending_delivery_notes(search=None, limit=None, offset=None):
 	"""Return submitted Delivery Notes that are not on a Delivery Trip yet, so
-	a trip can be planned against them. Each note carries its customer, the
-	shipping and the billing address, the contact, the customer PO and the
-	Sales Invoices raised against it.
+	a trip can be planned against them. Each note carries its customer — the
+	customer_id is what customer_addresses takes — the shipping and the billing
+	address, the contact, the customer PO and the Sales Invoices against it.
 
 	Query params, all optional: `search` (matches the note id), `limit`
 	(default 20) and `offset` (rows to skip).
@@ -294,6 +294,7 @@ def pending_delivery_notes(search=None, limit=None, offset=None):
 			data=[
 				{
 					"delivery_note_id": note.name,
+					"customer_id": note.customer or None,
 					"customer_name": note.customer_name or None,
 					"delivery_date": note.posting_date,
 					"shipping_address": addresses.get(note.shipping_address_name),
@@ -609,6 +610,7 @@ def _untripped_notes(search, limit, offset):
 		frappe.qb.from_(note)
 		.select(
 			note.name,
+			note.customer,
 			note.customer_name,
 			note.posting_date,
 			note.shipping_address_name,
