@@ -1,7 +1,7 @@
 import frappe
 from erpnext.stock.doctype.delivery_note.delivery_note import make_delivery_trip
 from frappe.query_builder import Order
-from frappe.query_builder.functions import Coalesce, Count
+from frappe.query_builder.functions import Count
 from frappe.utils import cint, cstr, flt, strip
 
 from warehouse_management.utils import strip_link_marker
@@ -193,40 +193,6 @@ def mark_visited(
 		frappe.log_error(title="Mark visited failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
-
-@frappe.whitelist(methods=["POST"])
-def submit_delivery_trip(delivery_trip_id=None):
-	"""Submit a Delivery Trip once every stop and pickup is visited.
-
-	Body: `{delivery_trip_id}`.
-	"""
-	try:
-		delivery_trip_id = strip(cstr(delivery_trip_id))
-
-		validation_error = _validate_trip(delivery_trip_id)
-		if validation_error:
-			return validation_error
-
-		pending = _unvisited_count(delivery_trip_id)
-		if pending:
-			return error(f"{pending} stop or pickup is still not marked visited.", 400)
-
-		trip = frappe.get_doc("Delivery Trip", delivery_trip_id)
-		trip.flags.ignore_permissions = True
-		trip.submit()
-		frappe.db.commit()
-
-		return success(
-			data={
-				"delivery_trip_id": trip.name,
-				"status": trip.status,
-				"message": "Delivery trip submitted.",
-			}
-		)
-	except Exception as e:
-		frappe.db.rollback()
-		frappe.log_error(title="Delivery trip submit failed", message=frappe.get_traceback())
-		return error(str(e), 500)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -478,10 +444,9 @@ def _delivery_notes(note_names):
 
 
 def _untripped_notes(search, limit, offset):
-	"""Submitted Delivery Notes carrying no trip, newest first. A trip stamps
-	delivery_trip on its notes as it saves, but the trips this database was
-	restored with mostly never got that far - so the stop rows are the check
-	that holds and the stamp is a second one.
+	"""Submitted Delivery Notes carrying no trip, newest first. A live Delivery
+	Stop pointing at the note is the check - Delivery Note.delivery_trip is v16
+	only, and it never caught a note the stop rows had missed.
 
 	The stops are matched on delivery_note, indexed by
 	patches/add_delivery_stop_delivery_note_index.py, so the planner looks each
@@ -517,7 +482,6 @@ def _untripped_notes(search, limit, offset):
 		)
 		.where(
 			(note.docstatus == 1)
-			& (Coalesce(note.delivery_trip, "") == "")
 			& note.name.notin(tripped)
 		)
 	)
