@@ -4,12 +4,18 @@ import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 # Frappe has no native submit timestamp, and Pick List has no posting_date
-# either, so this is the one field orderable across all four doctypes.
-SUBMITTED_AT_DOCTYPES = ["Purchase Receipt", "Delivery Note", "Pick List", "Stock Entry"]
+# either, so this is the one field orderable across every doctype below.
+# Delivery Trip has no posting_time to sit after, hence the per doctype anchor.
+SUBMITTED_AT_DOCTYPES = {
+	"Purchase Receipt": "posting_time",
+	"Delivery Note": "posting_time",
+	"Pick List": "posting_time",
+	"Stock Entry": "posting_time",
+	"Delivery Trip": "departure_time",
+}
 
 SUBMITTED_AT_FIELD = {
 	"fieldname": "submitted_at",
-	"insert_after": "posting_time",
 	"label": "Submitted At",
 	"fieldtype": "Datetime",
 	"read_only": 1,
@@ -49,8 +55,28 @@ def get_custom_fields():
 				"no_copy": 1,
 			},
 		],
-		# a driver notes what happened at the stop and attaches proof of delivery
+		# a driver notes what happened at the stop and attaches proof of delivery,
+		# and the stop is checked off twice on the way — out of the warehouse,
+		# then into the customer's hands
 		"Delivery Stop": [
+			{
+				"fieldname": "released_from_warehouse",
+				"label": "Released from Warehouse",
+				"fieldtype": "Check",
+				"default": "0",
+				"insert_after": "visited",
+				"allow_on_submit": 1,
+				"no_copy": 1,
+			},
+			{
+				"fieldname": "delivered_to_customer",
+				"label": "Delivered to Customer",
+				"fieldtype": "Check",
+				"default": "0",
+				"insert_after": "released_from_warehouse",
+				"allow_on_submit": 1,
+				"no_copy": 1,
+			},
 			{
 				"fieldname": "remark",
 				"label": "Remark",
@@ -129,8 +155,9 @@ def get_custom_fields():
 			},
 		],
 	}
-	for doctype in SUBMITTED_AT_DOCTYPES:
-		fields[doctype] = [dict(SUBMITTED_AT_FIELD)]
+	# appended, so a doctype that already has fields above keeps them
+	for doctype, insert_after in SUBMITTED_AT_DOCTYPES.items():
+		fields.setdefault(doctype, []).append({**SUBMITTED_AT_FIELD, "insert_after": insert_after})
 
 	return fields
 

@@ -160,6 +160,7 @@ doc_events = {
 	},
 	"Delivery Trip": {
 		"validate": "warehouse_management.api.delivery_trip.validate_has_stops_or_pickups",
+		"on_submit": "warehouse_management.utils.stamp_submitted_at",
 	},
 	# the three below re-total the item's qty in and out since its warehouse was
 	# last counted, which is what item enquiry displays

@@ -17,12 +17,16 @@ EXCLUDED_USERS = ("Administrator", "Guest")
 # Drivers are Active / Suspended / Left - only Active ones can take a trip
 DRIVER_ACTIVE_STATUS = "Active"
 
-# (doctype, label, extra filters) — Material Transfer is a Stock Entry purpose
+# (doctype, label, timestamp field, extra filters) — Material Transfer is a
+# Stock Entry purpose, and Hns Stock Arrival is not submittable, so it is dated
+# by creation rather than by the submitted_at stamp the others carry
 RECENT_SOURCES = [
-	("Purchase Receipt", "Purchase Receipt", {}),
-	("Delivery Note", "Delivery Note", {}),
-	("Pick List", "Pick List", {}),
-	("Stock Entry", "Material Transfer", {"purpose": "Material Transfer"}),
+	("Purchase Receipt", "Purchase Receipt", "submitted_at", {"docstatus": 1}),
+	("Delivery Note", "Delivery Note", "submitted_at", {"docstatus": 1}),
+	("Pick List", "Pick List", "submitted_at", {"docstatus": 1}),
+	("Delivery Trip", "Delivery Trip", "submitted_at", {"docstatus": 1}),
+	("Stock Entry", "Material Transfer", "submitted_at", {"docstatus": 1, "purpose": "Material Transfer"}),
+	("Hns Stock Arrival", "Stock Arrival", "creation", {}),
 ]
 
 
@@ -97,14 +101,14 @@ def item_list(search=None, barcode=None, limit=None, offset=None):
 
 @frappe.whitelist(methods=["GET"])
 def recent_entries():
-	"""The caller's 5 most recent submitted documents across Purchase
-	Receipt, Delivery Note, Pick List and Material Transfer. No input
-	required; scoped to the Authorization header user.
+	"""The caller's 5 most recent entries across Purchase Receipt, Delivery
+	Note, Pick List, Delivery Trip, Material Transfer and Stock Arrival. No
+	input required; scoped to the Authorization header user.
 	"""
 	try:
 		entries = []
-		for doctype, label, extra_filters in RECENT_SOURCES:
-			entries.extend(_recent_for(doctype, label, extra_filters))
+		for doctype, label, timestamp_field, extra_filters in RECENT_SOURCES:
+			entries.extend(_recent_for(doctype, label, timestamp_field, extra_filters))
 
 		entries.sort(key=lambda entry: entry["submitted_at"], reverse=True)
 		recent = entries[:RECENT_LIMIT]
@@ -366,22 +370,21 @@ def employee_list(search=None, limit=None, offset=None):
 		return error(str(e), 500)
 
 
-def _recent_for(doctype, label, extra_filters):
-	"""The caller's last RECENT_LIMIT submitted docs of one doctype, newest
-	first, by the submitted_at custom field (see setup/custom_fields.py — it
-	carries a search_index for this sort). Docs submitted before this app was
+def _recent_for(doctype, label, timestamp_field, extra_filters):
+	"""The caller's last RECENT_LIMIT docs of one doctype, newest first by
+	`timestamp_field` (submitted_at is a custom field with a search_index for
+	this sort — see setup/custom_fields.py). Docs submitted before this app was
 	installed have no stamp, so they are left out rather than sorted as None.
 	"""
+	filters = {"owner": frappe.session.user, **extra_filters}
+	if timestamp_field == "submitted_at":
+		filters["submitted_at"] = ["is", "set"]
+
 	rows = frappe.get_all(
 		doctype,
-		filters={
-			"docstatus": 1,
-			"owner": frappe.session.user,
-			"submitted_at": ["is", "set"],
-			**extra_filters,
-		},
-		fields=["name", "submitted_at"],
-		order_by="submitted_at desc",
+		filters=filters,
+		fields=["name", f"{timestamp_field} as submitted_at"],
+		order_by=f"{timestamp_field} desc",
 		limit=RECENT_LIMIT,
 	)
 	return [{"doctype": label, "name": row.name, "submitted_at": row.submitted_at} for row in rows]
