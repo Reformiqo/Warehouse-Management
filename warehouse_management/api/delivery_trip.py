@@ -558,7 +558,6 @@ def _trip_stops(delivery_trip_id):
 			"delivery_note",
 			"customer",
 			"address",
-			"contact",
 			"visited",
 			*VERIFICATION_FIELDS,
 		],
@@ -569,7 +568,9 @@ def _trip_stops(delivery_trip_id):
 	invoices = _sales_invoices(list(notes))
 	cargo = _cargo_by_note(list(notes))
 	addresses = _addresses([stop.address for stop in stops])
-	contacts = _contacts([stop.contact for stop in stops])
+	contact_names = [note.contact_person for note in notes.values()]
+	contact_persons = _contact_persons(contact_names)
+	contacts = _contacts(contact_names)
 
 	rows = []
 	for stop in stops:
@@ -587,7 +588,8 @@ def _trip_stops(delivery_trip_id):
 				"released_from_warehouse": bool(stop.released_from_warehouse),
 				"delivered_to_customer": bool(stop.delivered_to_customer),
 				"address": addresses.get(stop.address),
-				"contact": contacts.get(stop.contact),
+				"contact_person": contact_persons.get(note.get("contact_person")),
+				"contact": contacts.get(note.get("contact_person")),
 			}
 		)
 	return rows
@@ -635,8 +637,8 @@ def _trip_pickups(delivery_trip_id):
 
 
 def _delivery_notes(note_names):
-	"""Delivery Notes keyed by name. Address and contact are not read here —
-	the stop carries its own, which is what the trip was planned against.
+	"""Delivery Notes keyed by name. The address is not read here — the stop
+	carries its own, which is what the trip was planned against.
 	"""
 	if not note_names:
 		return {}
@@ -644,7 +646,7 @@ def _delivery_notes(note_names):
 	notes = frappe.get_all(
 		"Delivery Note",
 		filters={"name": ["in", note_names]},
-		fields=["name", "customer_name", "po_no", "po_date"],
+		fields=["name", "customer_name", "po_no", "po_date", "contact_person"],
 	)
 	return {note.name: note for note in notes}
 
@@ -860,6 +862,20 @@ def _full_address(address):
 		)
 		or None
 	)
+
+
+def _contact_persons(contact_names):
+	"""Full name per contact, for the person a stop is delivered to."""
+	contact_names = [name for name in contact_names if name]
+	if not contact_names:
+		return {}
+
+	contacts = frappe.get_all(
+		"Contact",
+		filters={"name": ["in", contact_names]},
+		fields=["name", "full_name"],
+	)
+	return {contact.name: contact.full_name for contact in contacts if contact.full_name}
 
 
 def _contacts(contact_names):
