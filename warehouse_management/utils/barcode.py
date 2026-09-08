@@ -31,6 +31,22 @@ def get_barcode_image(value, barcode_type=None, module_width=0.22, module_height
 	return f"data:image/png;base64,{base64.b64encode(png).decode()}" if png else ""
 
 
+def get_qrcode_image(value, scale=8, border=4):
+	"""Jinja helper: `value` drawn as a QR code PNG data URI.
+	make_qr, not make: the latter picks a Micro QR for short values, which most
+	handheld and phone scanners cannot read. border=4 is the spec quiet zone.
+	"""
+	import segno
+
+	value = frappe.utils.cstr(value).strip()
+	if not value:
+		return ""
+
+	stream = io.BytesIO()
+	segno.make_qr(value, error="m").save(stream, kind="png", scale=scale, border=border)
+	return f"data:image/png;base64,{base64.b64encode(stream.getvalue()).decode()}"
+
+
 def _symbology(barcode_type):
 	"""Item Barcode's type ("EAN-13", "UPC-A") as a python-barcode name."""
 	from barcode import PROVIDED_BARCODES

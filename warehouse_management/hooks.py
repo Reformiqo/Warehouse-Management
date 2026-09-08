@@ -79,7 +79,10 @@ doctype_js = {"Delivery Trip": "public/js/delivery_trip.js"}
 
 # add methods and filters to jinja environment
 jinja = {
-	"methods": ["warehouse_management.utils.barcode.get_barcode_image"],
+	"methods": [
+		"warehouse_management.utils.barcode.get_barcode_image",
+		"warehouse_management.utils.barcode.get_qrcode_image",
+	],
 	# "filters": "warehouse_management.utils.jinja_filters"
 }
 
