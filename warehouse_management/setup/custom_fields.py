@@ -55,6 +55,29 @@ def get_custom_fields():
 				"no_copy": 1,
 			},
 		],
+		"Stock Reconciliation Item": [
+			{
+				"fieldname": "reconciliation_image_1",
+				"label": "Reconciliation Image 1",
+				"fieldtype": "Attach",
+				"insert_after": "current_amount",
+				"no_copy": 1,
+			},
+			{
+				"fieldname": "reconciliation_image_2",
+				"label": "Reconciliation Image 2",
+				"fieldtype": "Attach",
+				"insert_after": "reconciliation_image_1",
+				"no_copy": 1,
+			},
+			{
+				"fieldname": "reconciliation_image_3",
+				"label": "Reconciliation Image 3",
+				"fieldtype": "Attach",
+				"insert_after": "reconciliation_image_2",
+				"no_copy": 1,
+			},
+		],
 		# a driver notes what happened at the stop and attaches proof of delivery,
 		# and the stop is checked off twice on the way — out of the warehouse,
 		# then into the customer's hands
