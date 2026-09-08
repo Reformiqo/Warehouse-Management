@@ -13,6 +13,10 @@ from frappe.utils import cint, cstr, flt, strip
 
 from warehouse_management.api.daily_assignment import _variation_label
 from warehouse_management.api.stock_reconciliation import (
+	_create_for_warehouse,
+	_validate_items,
+)
+from warehouse_management.api.stock_reconciliation import (
 	create_stock_reconciliation as create_daily_reconciliation,
 )
 from warehouse_management.utils import strip_link_marker
@@ -185,28 +189,67 @@ def add_item(assignment_id=None, item_code=None, user_counted=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def create_stock_reconciliation(items=None, file_url=None):
-	"""Post a warehouse's first count. The daily endpoint does the work —
-	raising the Stock Reconciliation and closing the assignment it belongs to —
-	and the warehouses counted are then marked as initially reconciled.
+def create_initial_stock_reconciliation(assignment_id=None, warehouse=None, items=None):
+	"""Post a warehouse's first count, link it to the initial assignment and
+	mark the warehouse reconciled.
 
-	Body: `{items, file_url}`, the same shape the daily endpoint takes: items
-	is `[{warehouse, item_code, qty}]`.
+	Body: `{assignment_id, warehouse, items}`, items being `[{item_code, qty,
+	images}]`. `images` is optional and holds up to three urls already uploaded
+	through /api/method/upload_file, saved on that item's reconciliation row.
 	"""
 	try:
 		items = frappe.parse_json(items) if isinstance(items, str) else items
+		warehouse = strip_link_marker(warehouse)
 
-		response = create_daily_reconciliation(items=items, file_url=file_url)
-		if not response.get("success"):
-			return response
+		for item in items if isinstance(items, list) else []:
+			item["warehouse"] = warehouse
 
-		_mark_reconciled(items)
+		validation_error = _validate_items(items)
+		if validation_error:
+			return validation_error
+
+		employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
+		if not employee:
+			return error("No Employee is linked to your user account.", 404)
+
+		assignment_id = strip_link_marker(assignment_id) or _initial_assignment(warehouse)
+		if not assignment_id:
+			return error(f"No initial reconciliation found for warehouse '{warehouse}'.", 404)
+
+		if not frappe.db.exists("Warehouse Daily Assignment", assignment_id):
+			return error(f"No initial reconciliation found for warehouse '{warehouse}'.", 404)
+
+		pending = frappe.get_all(
+			"Warehouse Daily Assignment Task",
+			filters={"parent": assignment_id, "is_completed": 0},
+			pluck="item_code",
+		)
+		if pending:
+			return error(f"Please complete the reconciliation for: {', '.join(pending)}.", 400)
+
+		varied = _items_with_variation(
+			warehouse, {item["item_code"]: flt(item.get("qty")) for item in items}
+		)
+		if not varied:
+			frappe.db.set_value("Warehouse Daily Assignment", assignment_id, {"no_variation": 1})
+			frappe.db.set_value("Warehouse", warehouse, "initial_reconciliation", 1)
+			frappe.db.commit()
+
+			return success(data={"no_variation": warehouse})
+
+		name = _create_for_warehouse(warehouse, varied)
+		_set_row_images(name, {item["item_code"]: item.get("images") for item in items})
+
+		frappe.db.set_value(
+			"Warehouse Daily Assignment", assignment_id, {"stock_reconciliation": name}
+		)
+		frappe.db.set_value("Warehouse", warehouse, "initial_reconciliation", 1)
 		frappe.db.commit()
 
-		return response
+		return success(data={"stock_reconciliation_id": name}, http_status=201)
 	except Exception as e:
 		frappe.db.rollback()
-		frappe.log_error(title="Initial reconciliation failed", message=frappe.get_traceback())
+		frappe.log_error(title="Initial stock reconciliation failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
 
@@ -279,3 +322,41 @@ def _mark_reconciled(items):
 		"initial_reconciliation",
 		1,
 	)
+
+
+def _items_with_variation(warehouse, item_qty_map):
+	"""Drop items counted at exactly what the system holds — ERPNext strips
+	unchanged rows and refuses a reconciliation left with none.
+	"""
+	bins = frappe.get_all(
+		"Bin",
+		filters={"warehouse": warehouse, "item_code": ["in", list(item_qty_map)]},
+		fields=["item_code", "actual_qty"],
+	)
+	system_qty = {row.item_code: flt(row.actual_qty, 6) for row in bins}
+
+	return {
+		item_code: qty
+		for item_code, qty in item_qty_map.items()
+		if flt(qty, 6) != system_qty.get(item_code, 0.0)
+	}
+
+
+def _set_row_images(reconciliation, item_images):
+	"""Stamp each item's images onto its row of the reconciliation. Items
+	counted at system qty are not on the document, so their images drop with
+	the row ERPNext strips anyway.
+	"""
+	rows = frappe.get_all(
+		"Stock Reconciliation Item",
+		filters={"parent": reconciliation},
+		fields=["name", "item_code"],
+	)
+	for row in rows:
+		urls = (item_images.get(row.item_code) or [])[:3]
+		if urls:
+			frappe.db.set_value(
+				"Stock Reconciliation Item",
+				row.name,
+				{f"reconciliation_image_{index}": url for index, url in enumerate(urls, start=1)},
+			)
