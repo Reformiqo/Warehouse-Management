@@ -11,6 +11,11 @@ DEFAULT_LIMIT = 20
 ROW_DOCTYPES = {"stop": "Delivery Stop", "pickup": "Delivery Trip Pickup Detail"}
 PACKING_SLIP_DOCTYPE = "Hns Packing Slip"
 TRIP_LIST_STATUSES = ["Scheduled", "In Transit"]
+# a stop is checked off twice on the way, and released has to come first
+VERIFICATION_FIELDS = {
+	"released_from_warehouse": "Released from warehouse.",
+	"delivered_to_customer": "Delivered to customer.",
+}
 
 
 @frappe.whitelist(methods=["GET"])
@@ -215,6 +220,59 @@ def mark_visited(
 		frappe.log_error(title="Mark visited failed", message=frappe.get_traceback())
 		return error(str(e), 500)
 
+
+@frappe.whitelist(methods=["POST"])
+def verify_delivery_stop(
+	delivery_trip_id=None, delivery_note_id=None, row_id=None, verification_type=None
+):
+	"""Tick one of a stop's two verification checks. The stop is named by its
+	row_id, so a delivery note sitting on the trip more than once stays
+	unambiguous, and delivery_note_id is checked against that row. Ticking a
+	check that is already on succeeds again, so a repeated scan is safe.
+
+	Body: `{delivery_trip_id, delivery_note_id, row_id, verification_type}` —
+	row_id is the `row_id` from the details response, and verification_type is
+	"released_from_warehouse" or "delivered_to_customer". A stop has to be
+	released before it can be delivered.
+	"""
+	try:
+		delivery_trip_id = strip_link_marker(frappe.utils.strip_html(cstr(delivery_trip_id)))
+		delivery_note_id = strip_link_marker(frappe.utils.strip_html(cstr(delivery_note_id)))
+		row_id = strip(frappe.utils.strip_html(cstr(row_id)))
+		verification_type = strip(cstr(verification_type)).lower()
+
+		if verification_type not in VERIFICATION_FIELDS:
+			return error(
+				"Please provide a verification_type of "
+				+ " or ".join(f"'{field}'" for field in VERIFICATION_FIELDS)
+				+ ".",
+				400,
+			)
+
+		stop = frappe.db.get_value(
+			"Delivery Stop",
+			{"name": row_id, "parent": delivery_trip_id, "parenttype": "Delivery Trip"},
+			["delivery_note", *VERIFICATION_FIELDS],
+			as_dict=True,
+		)
+		if not stop:
+			return error(f"Row '{row_id}' is not a stop on this delivery trip.", 404)
+
+		if stop.delivery_note != delivery_note_id:
+			return error(f"Delivery Note '{delivery_note_id}' is not on this stop.", 404)
+
+		if verification_type == "delivered_to_customer" and not cint(stop.released_from_warehouse):
+			return error("This stop has not been released from the warehouse yet.", 400)
+
+		if not cint(stop.get(verification_type)):
+			frappe.db.set_value("Delivery Stop", row_id, verification_type, 1)
+			frappe.db.commit()
+
+		return success(data={"message": VERIFICATION_FIELDS[verification_type]})
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(title="Delivery stop verification failed", message=frappe.get_traceback())
+		return error(str(e), 500)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -495,7 +553,15 @@ def _trip_stops(delivery_trip_id):
 	stops = frappe.get_all(
 		"Delivery Stop",
 		filters={"parent": delivery_trip_id, "parenttype": "Delivery Trip"},
-		fields=["name", "delivery_note", "customer", "address", "contact", "visited"],
+		fields=[
+			"name",
+			"delivery_note",
+			"customer",
+			"address",
+			"contact",
+			"visited",
+			*VERIFICATION_FIELDS,
+		],
 		order_by="idx",
 	)
 
@@ -518,6 +584,8 @@ def _trip_stops(delivery_trip_id):
 				"party_name": note.get("customer_name") or stop.customer or None,
 				"cargo": cargo.get(stop.delivery_note),
 				"visited": bool(stop.visited),
+				"released_from_warehouse": bool(stop.released_from_warehouse),
+				"delivered_to_customer": bool(stop.delivered_to_customer),
 				"address": addresses.get(stop.address),
 				"contact": contacts.get(stop.contact),
 			}
