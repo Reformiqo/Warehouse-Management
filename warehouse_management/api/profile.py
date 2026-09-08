@@ -9,7 +9,7 @@ they're queried live on each call instead.
 """
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from warehouse_management.utils.response import error, success
 
@@ -30,6 +30,7 @@ def profile():
 		user = frappe.session.user
 		full_name = frappe.db.get_value("User", user, "full_name")
 		daily_reconciliation, has_task = _daily_reconciliation_status(user)
+		reconciled, completed_warehouse, total_warehouse = _initial_reconciliation_status()
 
 		return success(
 			data={
@@ -38,7 +39,9 @@ def profile():
 				**get_cached_stats(),
 				"open_po": frappe.db.count("Purchase Order", {"status": ["in", OPEN_PO_STATUSES]}),
 				"open_so": frappe.db.count("Sales Order", {"status": ["in", OPEN_SO_STATUSES]}),
-				"initial_reconciliation": _all_leaf_warehouses_reconciled(),
+				"initial_reconciliation_pending": reconciled,
+				"completed_reconciliation_warehouse": completed_warehouse,
+				"total_reconciliation_warehouse": total_warehouse,
 				"daily_reconciliation": daily_reconciliation,
 				"has_task": has_task,
 			},
@@ -236,9 +239,19 @@ def _daily_reconciliation_status(user):
 	}, True
 
 
-def _all_leaf_warehouses_reconciled():
-	"""True unless at least one leaf warehouse still has
-	initial_reconciliation = 0. Queried live, not cached, since it
-	changes via mark_warehouse_reconciled on Stock Reconciliation submit.
+def _initial_reconciliation_status():
+	"""(is_reconciled, pending, total) over leaf warehouses — group ones hold
+	no stock so they are not counted. One query, so the flag is simply
+	"nothing pending" and cannot drift from the counts beside it.
 	"""
-	return not frappe.db.exists("Warehouse", {"is_group": 0, "disabled": 0, "initial_reconciliation": 0})
+	row = frappe.db.sql(
+		"""
+		SELECT COUNT(*) AS total,
+		       COUNT(CASE WHEN initial_reconciliation = 0 THEN 1 END) AS pending
+		FROM `tabWarehouse`
+		WHERE is_group = 0 AND disabled = 0
+		""",
+		as_dict=True,
+	)[0]
+
+	return not row.pending, cint(row.total - row.pending), cint(row.total)

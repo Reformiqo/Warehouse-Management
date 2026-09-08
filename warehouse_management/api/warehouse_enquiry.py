@@ -96,3 +96,26 @@ def _last_submitted_datetime(child_doctype, parent_doctype, warehouse):
 		{"warehouse": warehouse},
 	)
 	return str(rows[0][0]) if rows and rows[0][0] else None
+
+
+@frappe.whitelist(methods=["GET"])
+def get_warehouse_reconciliation_status(warehouse):
+	if not frappe.db.exists("Warehouse", {"name": warehouse, "disabled": 0}):
+		return error(f"Warehouse '{warehouse}' not found or is disabled.", 404)
+
+	try:
+		items = _get_items_in_warehouse(warehouse)
+		total_quantity = sum(item["balance_qty"] for item in items)
+
+		return success(
+			data={
+				"status": "Verified" if frappe.db.get_value("Warehouse", warehouse, "initial_reconciliation") else "un-Reconciled",
+				"unique_items": len(items),
+				"total_quantity": total_quantity,
+				"last_inward": _last_submitted_datetime("Purchase Receipt Item", "Purchase Receipt", warehouse) or "",
+				"last_outward": _last_submitted_datetime("Delivery Note Item", "Delivery Note", warehouse) or "",
+			}
+		)
+	except Exception as e:
+		frappe.log_error(title="Warehouse enquiry failed", message=frappe.get_traceback())
+		return error(str(e), 500)
