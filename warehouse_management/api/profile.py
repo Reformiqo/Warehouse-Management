@@ -254,4 +254,4 @@ def _initial_reconciliation_status():
 		as_dict=True,
 	)[0]
 
-	return not row.pending, cint(row.total - row.pending), cint(row.total)
+	return bool(row.pending), cint(row.total - row.pending), cint(row.total)
