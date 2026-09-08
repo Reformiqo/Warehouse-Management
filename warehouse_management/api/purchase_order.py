@@ -10,12 +10,19 @@ DEFAULT_LIMIT = 20
 
 @frappe.whitelist(methods=["GET"])
 def get_purchase_orders(
-	from_date=None, to_date=None, item_code=None, supplier_name=None, limit=None, offset=None
+	from_date=None,
+	to_date=None,
+	po_id=None,
+	item_code=None,
+	supplier_name=None,
+	limit=None,
+	offset=None,
 ):
 	"""Return open Purchase Orders (To Receive and Bill / To Receive),
-	optionally narrowed by posting date range, item, and/or supplier.
+	optionally narrowed by posting date range, purchase order id, item,
+	and/or supplier.
 
-	Query params, all optional: `from_date`, `to_date`, `item_code`,
+	Query params, all optional: `from_date`, `to_date`, `po_id`, `item_code`,
 	`supplier_name`, `limit` (default 20), `offset` (rows to skip,
 	default 0). total_count ignores limit/offset, so it drives paging.
 	"""
@@ -23,7 +30,7 @@ def get_purchase_orders(
 		limit = cint(limit) or DEFAULT_LIMIT
 		offset = cint(offset)
 
-		po_names = _matching_po_names(from_date, to_date, item_code, supplier_name)
+		po_names = _matching_po_names(from_date, to_date, po_id, item_code, supplier_name)
 		total_count = len(po_names)
 		page = po_names[offset : offset + limit]
 
@@ -118,9 +125,10 @@ def _get_po_item_detail(po_id):
 	]
 
 
-def _matching_po_names(from_date, to_date, item_code, supplier_name):
+def _matching_po_names(from_date, to_date, po_id, item_code, supplier_name):
 	"""Distinct Purchase Order names matching the open-PO statuses plus
-	optional date range, item, and supplier filters, newest first.
+	optional date range, purchase order id, item, and supplier filters,
+	newest first.
 	"""
 	conditions = ["purchase_order.status IN %(statuses)s"]
 	values = {"statuses": tuple(OPEN_PO_STATUSES)}
@@ -132,6 +140,10 @@ def _matching_po_names(from_date, to_date, item_code, supplier_name):
 	if to_date:
 		conditions.append("purchase_order.transaction_date <= %(to_date)s")
 		values["to_date"] = to_date
+
+	if po_id:
+		conditions.append("purchase_order.name LIKE %(po_id)s")
+		values["po_id"] = f"%{po_id}%"
 
 	if item_code:
 		conditions.append("po_item.item_code LIKE %(item_code)s")

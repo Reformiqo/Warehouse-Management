@@ -42,8 +42,8 @@ def warehouse_enquiry(warehouse=None, search=None, limit=None, offset=None):
 				"warehouse": warehouse,
 				"unique_items": len(items),
 				"total_quantity": total_quantity,
-				"last_inward": _last_submitted_date("Purchase Receipt Item", "Purchase Receipt", warehouse) or "",
-				"last_outward": _last_submitted_date("Delivery Note Item", "Delivery Note", warehouse) or "",
+				"last_inward": _last_submitted_datetime("Purchase Receipt Item", "Purchase Receipt", warehouse) or "",
+				"last_outward": _last_submitted_datetime("Delivery Note Item", "Delivery Note", warehouse) or "",
 				"items": items[offset : offset + limit],
 			}
 		)
@@ -80,13 +80,13 @@ def _get_items_in_warehouse(warehouse):
 	return list(items_by_code.values())
 
 
-def _last_submitted_date(child_doctype, parent_doctype, warehouse):
-	"""posting_date of the most recently submitted parent_doctype whose
-	child rows reference this warehouse, or None if there isn't one.
+def _last_submitted_datetime(child_doctype, parent_doctype, warehouse):
+	"""posting date and time of the most recently submitted parent_doctype
+	whose child rows reference this warehouse, or None if there isn't one.
 	"""
 	rows = frappe.db.sql(
 		f"""
-		SELECT parent_doc.posting_date
+		SELECT TIMESTAMP(parent_doc.posting_date, parent_doc.posting_time)
 		FROM `tab{child_doctype}` item_row
 		INNER JOIN `tab{parent_doctype}` parent_doc ON parent_doc.name = item_row.parent
 		WHERE item_row.warehouse = %(warehouse)s AND parent_doc.docstatus = 1
@@ -95,4 +95,4 @@ def _last_submitted_date(child_doctype, parent_doctype, warehouse):
 		""",
 		{"warehouse": warehouse},
 	)
-	return str(rows[0][0]) if rows else None
+	return str(rows[0][0]) if rows and rows[0][0] else None
