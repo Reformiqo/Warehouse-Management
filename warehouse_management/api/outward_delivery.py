@@ -278,51 +278,6 @@ def delivery_note_list(customer=None, search=None, limit=None, offset=None):
 		return error(str(e), 500)
 
 
-@frappe.whitelist()
-def get_delivery_note_details(delivery_note):
-    if not delivery_note:
-        frappe.throw("Delivery Note is required")
-
-    dn = frappe.get_doc("Delivery Note", delivery_note)
-
-    data = {
-        "delivery_note": dn.name,
-        "customer": dn.customer or "",
-        "customer_name": dn.customer_name or "",
-        "packed_by": dn.custom_packed_by or "",
-        "courier_name": dn.transporter or "",
-        "city": "",
-        "customer_mobile_no": "",
-        "customer_email_address": "",
-        "gst_no": "",
-    }
-
-    # Get city from Shipping Address
-    if dn.shipping_address_name:
-        city = frappe.db.get_value(
-            "Address",
-            dn.shipping_address_name,
-            "city"
-        )
-
-        data["city"] = city or ""
-
-    # Get Customer details
-    if dn.customer:
-        customer = frappe.db.get_value(
-            "Customer",
-            dn.customer,
-            ["mobile_no", "email_id", "gstin"],
-            as_dict=True
-        )
-
-        if customer:
-            data["customer_mobile_no"] = customer.mobile_no or ""
-            data["customer_email_address"] = customer.email_id or ""
-            data["gst_no"] = customer.gstin or ""
-
-    return data
-
 
 @frappe.whitelist(methods=["GET"])
 def custom_po_list(search=None, limit=None, offset=None):
@@ -340,12 +295,12 @@ def custom_po_list(search=None, limit=None, offset=None):
 
 		filters = {}
 		if search:
-			filters = {"name": ["like", f"%{search}%"], "po_no": ["like", f"%{search}%"]}
+			filters = {"name": ["like", f"%{search}%"]}
 
 		custom_pos = frappe.get_all(
 			CUSTOM_PO_DOCTYPE,
 			filters=filters,
-			pluck="name as custom_po_id",
+			pluck="name",
 			order_by="transaction_date desc",
 			limit_start=offset,
 			limit_page_length=limit,
