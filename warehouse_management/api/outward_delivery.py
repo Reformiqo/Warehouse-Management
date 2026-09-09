@@ -442,7 +442,7 @@ def _misc_master_options(group, search=None, limit=None, offset=None):
 		masters = frappe.get_all(
 			MISC_MASTER_DOCTYPE,
 			filters=filters,
-			fields=["record_id as name", "value"],
+			fields=["record_id as name", "record_id as value"],     # Here this is done twise to not change in android application
 			order_by="value",
 			limit_start=offset,
 			limit_page_length=limit,
