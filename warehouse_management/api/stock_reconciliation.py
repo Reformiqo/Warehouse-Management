@@ -36,7 +36,7 @@ def create_stock_reconciliation(items=None, file_url=None):
 
 		warehouse_items = {}
 		for row in items:
-			warehouse_items.setdefault(row["warehouse"], {})[row["item_code"]] = flt(row.get("qty"))
+			warehouse_items.setdefault(row["warehouse"], {})[row["item_code"]] = flt(row.get("user_counted"))
 
 		assignments = _get_assignments(employee, list(warehouse_items))
 		completion_error = _validate_tasks_completed(assignments)
