@@ -158,92 +158,92 @@ def create_outward_delivery(
 		return error(str(e), 500)
 
 
-@frappe.whitelist(methods=["GET"])
-def outward_delivery_list(
-	customer=None, delivery_note=None, from_date=None, to_date=None, search=None, limit=None, offset=None
-):
-	"""Return Hns Outward Delivery rows, newest first.
+# @frappe.whitelist(methods=["GET"])
+# def outward_delivery_list(
+# 	customer=None, delivery_note=None, from_date=None, to_date=None, search=None, limit=None, offset=None
+# ):
+# 	"""Return Hns Outward Delivery rows, newest first.
 
-	Query params, all optional: `customer` (a Customer id), `delivery_note`,
-	`from_date` and `to_date` (both on the delivery date), `search` (matches the
-	delivery id, the docket no or the customer name), `limit` (default 20) and
-	`offset` (rows to skip).
-	"""
-	try:
-		if not frappe.db.exists("DocType", DELIVERY_DOCTYPE):
-			return error(f"{DELIVERY_DOCTYPE} is not available on this site", 404)
+# 	Query params, all optional: `customer` (a Customer id), `delivery_note`,
+# 	`from_date` and `to_date` (both on the delivery date), `search` (matches the
+# 	delivery id, the docket no or the customer name), `limit` (default 20) and
+# 	`offset` (rows to skip).
+# 	"""
+# 	try:
+# 		if not frappe.db.exists("DocType", DELIVERY_DOCTYPE):
+# 			return error(f"{DELIVERY_DOCTYPE} is not available on this site", 404)
 
-		customer = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(customer)))
-		delivery_note = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(delivery_note)))
-		search = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(search)))
-		from_date = frappe.utils.strip(frappe.utils.cstr(from_date))
-		to_date = frappe.utils.strip(frappe.utils.cstr(to_date))
-		limit = cint(limit) or DEFAULT_LIMIT
-		offset = cint(offset)
+# 		customer = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(customer)))
+# 		delivery_note = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(delivery_note)))
+# 		search = strip_link_marker(frappe.utils.strip_html(frappe.utils.cstr(search)))
+# 		from_date = frappe.utils.strip(frappe.utils.cstr(from_date))
+# 		to_date = frappe.utils.strip(frappe.utils.cstr(to_date))
+# 		limit = cint(limit) or DEFAULT_LIMIT
+# 		offset = cint(offset)
 
-		filters = []
-		if customer:
-			filters.append(["customer_name", "=", customer])
-		if delivery_note:
-			filters.append(["delivery_note", "=", delivery_note])
-		if from_date:
-			filters.append(["date", ">=", from_date])
-		if to_date:
-			filters.append(["date", "<=", to_date])
+# 		filters = []
+# 		if customer:
+# 			filters.append(["customer_name", "=", customer])
+# 		if delivery_note:
+# 			filters.append(["delivery_note", "=", delivery_note])
+# 		if from_date:
+# 			filters.append(["date", ">=", from_date])
+# 		if to_date:
+# 			filters.append(["date", "<=", to_date])
 
-		# the three searchable columns must OR together - as filters they would
-		# AND and match nothing
-		or_filters = {}
-		if search:
-			or_filters = {
-				"name": ["like", f"%{search}%"],
-				"docket_no": ["like", f"%{search}%"],
-				"customer": ["like", f"%{search}%"],
-			}
+# 		# the three searchable columns must OR together - as filters they would
+# 		# AND and match nothing
+# 		or_filters = {}
+# 		if search:
+# 			or_filters = {
+# 				"name": ["like", f"%{search}%"],
+# 				"docket_no": ["like", f"%{search}%"],
+# 				"customer": ["like", f"%{search}%"],
+# 			}
 
-		deliveries = frappe.get_all(
-			DELIVERY_DOCTYPE,
-			filters=filters,
-			or_filters=or_filters,
-			fields=list(LIST_FIELDS),
-			order_by="date desc, creation desc",
-			limit_start=offset,
-			limit_page_length=limit,
-		)
-		return success(data=deliveries)
-	except Exception as e:
-		frappe.log_error(title="Outward delivery list failed", message=frappe.get_traceback())
-		return error(str(e), 500)
+# 		deliveries = frappe.get_all(
+# 			DELIVERY_DOCTYPE,
+# 			filters=filters,
+# 			or_filters=or_filters,
+# 			fields=list(LIST_FIELDS),
+# 			order_by="date desc, creation desc",
+# 			limit_start=offset,
+# 			limit_page_length=limit,
+# 		)
+# 		return success(data=deliveries)
+# 	except Exception as e:
+# 		frappe.log_error(title="Outward delivery list failed", message=frappe.get_traceback())
+# 		return error(str(e), 500)
 
 
-@frappe.whitelist(methods=["GET"])
-def outward_delivery_detail(outward_delivery_id=None):
-	"""Return one Hns Outward Delivery in full. `outward_delivery_id` is
-	required and is the id create_outward_delivery hands back.
-	"""
-	try:
-		if not frappe.db.exists("DocType", DELIVERY_DOCTYPE):
-			return error(f"{DELIVERY_DOCTYPE} is not available on this site", 404)
+# @frappe.whitelist(methods=["GET"])
+# def outward_delivery_detail(outward_delivery_id=None):
+# 	"""Return one Hns Outward Delivery in full. `outward_delivery_id` is
+# 	required and is the id create_outward_delivery hands back.
+# 	"""
+# 	try:
+# 		if not frappe.db.exists("DocType", DELIVERY_DOCTYPE):
+# 			return error(f"{DELIVERY_DOCTYPE} is not available on this site", 404)
 
-		outward_delivery_id = strip_link_marker(
-			frappe.utils.strip_html(frappe.utils.cstr(outward_delivery_id))
-		)
-		if not outward_delivery_id:
-			return error("Please provide an outward_delivery_id.", 400)
+# 		outward_delivery_id = strip_link_marker(
+# 			frappe.utils.strip_html(frappe.utils.cstr(outward_delivery_id))
+# 		)
+# 		if not outward_delivery_id:
+# 			return error("Please provide an outward_delivery_id.", 400)
 
-		deliveries = frappe.get_all(
-			DELIVERY_DOCTYPE,
-			filters={"name": outward_delivery_id},
-			fields=list(DETAIL_FIELDS),
-			limit_page_length=1,
-		)
-		if not deliveries:
-			return error(f"Outward delivery '{outward_delivery_id}' not found.", 404)
+# 		deliveries = frappe.get_all(
+# 			DELIVERY_DOCTYPE,
+# 			filters={"name": outward_delivery_id},
+# 			fields=list(DETAIL_FIELDS),
+# 			limit_page_length=1,
+# 		)
+# 		if not deliveries:
+# 			return error(f"Outward delivery '{outward_delivery_id}' not found.", 404)
 
-		return success(data=deliveries[0])
-	except Exception as e:
-		frappe.log_error(title="Outward delivery detail failed", message=frappe.get_traceback())
-		return error(str(e), 500)
+# 		return success(data=deliveries[0])
+# 	except Exception as e:
+# 		frappe.log_error(title="Outward delivery detail failed", message=frappe.get_traceback())
+# 		return error(str(e), 500)
 
 
 @frappe.whitelist(methods=["GET"])
@@ -278,6 +278,52 @@ def delivery_note_list(customer=None, search=None, limit=None, offset=None):
 		return error(str(e), 500)
 
 
+@frappe.whitelist()
+def get_delivery_note_details(delivery_note):
+    if not delivery_note:
+        frappe.throw("Delivery Note is required")
+
+    dn = frappe.get_doc("Delivery Note", delivery_note)
+
+    data = {
+        "delivery_note": dn.name,
+        "customer": dn.customer or "",
+        "customer_name": dn.customer_name or "",
+        "packed_by": dn.custom_packed_by or "",
+        "courier_name": dn.transporter or "",
+        "city": "",
+        "customer_mobile_no": "",
+        "customer_email_address": "",
+        "gst_no": "",
+    }
+
+    # Get city from Shipping Address
+    if dn.shipping_address_name:
+        city = frappe.db.get_value(
+            "Address",
+            dn.shipping_address_name,
+            "city"
+        )
+
+        data["city"] = city or ""
+
+    # Get Customer details
+    if dn.customer:
+        customer = frappe.db.get_value(
+            "Customer",
+            dn.customer,
+            ["mobile_no", "email_id", "gstin"],
+            as_dict=True
+        )
+
+        if customer:
+            data["customer_mobile_no"] = customer.mobile_no or ""
+            data["customer_email_address"] = customer.email_id or ""
+            data["gst_no"] = customer.gstin or ""
+
+    return data
+
+
 @frappe.whitelist(methods=["GET"])
 def custom_po_list(search=None, limit=None, offset=None):
 	"""Return Hns Custom Po records, for the hns_custom_po picker. Query params,
@@ -292,14 +338,14 @@ def custom_po_list(search=None, limit=None, offset=None):
 		if not frappe.db.exists("DocType", CUSTOM_PO_DOCTYPE):
 			return error(f"{CUSTOM_PO_DOCTYPE} is not available on this site", 404)
 
-		or_filters = {}
+		filters = {}
 		if search:
-			or_filters = {"name": ["like", f"%{search}%"], "po_no": ["like", f"%{search}%"]}
+			filters = {"name": ["like", f"%{search}%"], "po_no": ["like", f"%{search}%"]}
 
 		custom_pos = frappe.get_all(
 			CUSTOM_PO_DOCTYPE,
-			or_filters=or_filters,
-			fields=["name as custom_po_id", "po_no", "transaction_date"],
+			filters=filters,
+			pluck="name as custom_po_id",
 			order_by="transaction_date desc",
 			limit_start=offset,
 			limit_page_length=limit,
@@ -441,7 +487,7 @@ def _misc_master_options(group, search=None, limit=None, offset=None):
 		masters = frappe.get_all(
 			MISC_MASTER_DOCTYPE,
 			filters=filters,
-			fields=["record_id as misc_master_code", "value as misc_master_name"],
+			fields=["record_id as name", "value"],
 			order_by="value",
 			limit_start=offset,
 			limit_page_length=limit,
