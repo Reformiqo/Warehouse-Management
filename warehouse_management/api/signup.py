@@ -15,7 +15,7 @@ from warehouse_management.utils.response import error, success
 
 # Stock User is what grants read-only access to Sales Order; Pick List
 # create already comes from Stock Manager.
-SIGNUP_ROLES = ["Stock Manager", "Purchase User", "Stock User", "Supplier"]
+SIGNUP_ROLES = ["Stock Manager", "Purchase User", "Stock User", "Supplier", "Item Manager"]
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

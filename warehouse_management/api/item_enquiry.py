@@ -104,6 +104,7 @@ def item_detail(item_code=None):
 		warehouse_stock = _get_warehouse_details(item_code)
 		return success(
 			data={
+				"image" : frappe.db.get_value("Item", item_code, "image"),
 				"warehouse_wise_stock": warehouse_stock,
 				"available_for_sale": flt(sum(row["qty"] for row in warehouse_stock))
 				- _get_committed_so_qty(item_code),
