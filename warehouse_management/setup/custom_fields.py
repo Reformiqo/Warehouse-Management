@@ -205,8 +205,4 @@ def get_custom_fields():
 
 
 def create_fields():
-	# Warehouse, Sales Order and friends carry orphan link fields from an
-	# uninstalled app, and saving a Custom Field revalidates the whole doctype,
-	# which would throw on them and abort setup before anything is created
-	create_custom_fields(get_custom_fields(), ignore_validate=True)
-	frappe.db.commit()
+	create_custom_fields(get_custom_fields())
