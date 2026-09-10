@@ -106,10 +106,18 @@ def get_warehouse_reconciliation_status(warehouse):
 	try:
 		items = _get_items_in_warehouse(warehouse)
 		total_quantity = sum(item["balance_qty"] for item in items)
+		reconciliation = frappe.db.get_value(
+			"Warehouse",
+			warehouse,
+			["initial_reconciliation", "initial_reconciliation_by", "initial_reconciliation_on"],
+			as_dict=True,
+		)
 
 		return success(
 			data={
-				"status": "Verified" if frappe.db.get_value("Warehouse", warehouse, "initial_reconciliation") else "un-Reconciled",
+				"status": "Verified" if reconciliation.initial_reconciliation else "un-Reconciled",
+				"reconciled_by": reconciliation.initial_reconciliation_by or "",
+				"reconciled_on": str(reconciliation.initial_reconciliation_on or ""),
 				"unique_items": len(items),
 				"total_quantity": total_quantity,
 				"last_inward": _last_submitted_datetime("Purchase Receipt Item", "Purchase Receipt", warehouse) or "",

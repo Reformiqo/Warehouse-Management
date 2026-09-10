@@ -36,6 +36,25 @@ def get_custom_fields():
 				"insert_after": "disabled",
 				"depends_on": "eval:!doc.is_group",
 			},
+			{
+				"fieldname": "initial_reconciliation_by",
+				"label": "Initial Reconciliation Done By",
+				"fieldtype": "Link",
+				"options": "User",
+				"insert_after": "initial_reconciliation",
+				"depends_on": "eval:!doc.is_group",
+				"read_only": 1,
+				"no_copy": 1,
+			},
+			{
+				"fieldname": "initial_reconciliation_on",
+				"label": "Initial Reconciliation Done At",
+				"fieldtype": "Datetime",
+				"insert_after": "initial_reconciliation_by",
+				"depends_on": "eval:!doc.is_group",
+				"read_only": 1,
+				"no_copy": 1,
+			},
 		],
 		"Item": [
 			{

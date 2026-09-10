@@ -137,7 +137,8 @@ def invalidate_stats_cache(doc=None, method=None):
 def mark_warehouse_reconciled(doc, method=None):
 	"""hooks.py doc_events target for Stock Reconciliation on_submit.
 	initial_reconciliation is set once per warehouse, so the filter
-	skips already-flagged ones instead of rewriting them every submit.
+	skips already-flagged ones instead of rewriting them every submit —
+	which also keeps the by/at stamp on the submit that first counted it.
 	"""
 	warehouses = list({row.warehouse for row in doc.items if row.warehouse})
 	if not warehouses:
@@ -146,8 +147,11 @@ def mark_warehouse_reconciled(doc, method=None):
 	frappe.db.set_value(
 		"Warehouse",
 		{"name": ["in", warehouses], "initial_reconciliation": 0},
-		"initial_reconciliation",
-		1,
+		{
+			"initial_reconciliation": 1,
+			"initial_reconciliation_by": frappe.session.user,
+			"initial_reconciliation_on": frappe.utils.now(),
+		},
 	)
 
 
