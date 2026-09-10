@@ -43,4 +43,14 @@ def get_property_setters():
 
 def create_property_setters():
 	for args in get_property_setters():
-		frappe.make_property_setter(args)
+		# custom_order_type and friends come from other apps, so on a fresh site
+		# they may not exist yet and Property Setter validation would abort setup
+		if args.get("doctype_or_field", "DocField") == "DocField" and not frappe.get_meta(
+			args["doctype"]
+		).has_field(args["fieldname"]):
+			continue
+
+		# Employee carries orphan link fields from an uninstalled app, and a full
+		# doctype revalidation on every insert would throw on them; we only set
+		# reqd/search_index here, so nothing needs that check
+		frappe.make_property_setter(args, validate_fields_for_doctype=False)
