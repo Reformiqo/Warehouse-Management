@@ -34,6 +34,8 @@ def outstanding_invoices(customer=None, limit=None, offset=None):
 				"posting_date AS sales_invoice_date",
 				"status",
 				"outstanding_amount",
+				"po_no AS customer_po_no",
+				"po_date AS customer_po_date",
 			],
 			order_by="posting_date desc, name desc",
 			limit_page_length=cint(limit) or DEFAULT_LIMIT,
