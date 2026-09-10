@@ -11,11 +11,15 @@ they're queried live on each call instead.
 import frappe
 from frappe.utils import cint, flt
 
+from warehouse_management.setup.roles import APP_ROLES
 from warehouse_management.utils.response import error, success
 
 STATS_CACHE_KEY = "warehouse_management:profile_stats"
 
 TEAM_STATUS_ROLE = "System Manager"
+
+# roles named for the user themselves, not for a screen they can open
+IDENTITY_ROLE_PREFIX = "Mobile App"
 
 OPEN_PO_STATUSES = ["To Receive and Bill", "To Receive"]
 OPEN_SO_STATUSES = ["To Deliver and Bill", "To Deliver"]
@@ -36,6 +40,7 @@ def profile():
 			data={
 				"full_name": full_name,
 				"email": user,
+				**_role_flags(user),
 				**get_cached_stats(),
 				"open_po": frappe.db.count("Purchase Order", {"status": ["in", OPEN_PO_STATUSES]}),
 				"open_so": frappe.db.count("Sales Order", {"status": ["in", OPEN_SO_STATUSES]}),
@@ -153,6 +158,24 @@ def mark_warehouse_reconciled(doc, method=None):
 			"initial_reconciliation_on": frappe.utils.now(),
 		},
 	)
+
+
+def _role_flags(user):
+	"""One flag per app role, always present. The Mobile App roles say who the
+	user is (is_...), the rest what they may open (has_..._access). Roles come
+	from the User's own Has Role rows; frappe.get_roles() folds in All/Guest too.
+	"""
+	assigned = set(
+		frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role")
+	)
+
+	flags = {}
+	for role in APP_ROLES:
+		scrubbed = frappe.scrub(role)
+		key = f"is_{scrubbed}" if role.startswith(IDENTITY_ROLE_PREFIX) else f"has_{scrubbed}_access"
+		flags[key] = role in assigned
+
+	return flags
 
 
 def _group_by_employee(rows):

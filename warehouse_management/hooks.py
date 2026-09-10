@@ -90,7 +90,7 @@ jinja = {
 # ------------
 
 # before_install = "warehouse_management.install.before_install"
-# after_install = "warehouse_management.install.after_install"
+after_install = "warehouse_management.setup.roles.create_roles"
 
 # Uninstallation
 # ------------
@@ -234,6 +234,7 @@ scheduler_events = {
 # ---------------
 
 after_migrate = [
+	"warehouse_management.setup.roles.create_roles",
 	"warehouse_management.setup.custom_fields.create_fields",
 	"warehouse_management.setup.property_setters.create_property_setters",
 ]
