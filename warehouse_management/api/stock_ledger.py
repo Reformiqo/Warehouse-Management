@@ -149,16 +149,36 @@ def _master_list(
 
 def execute(filters):
     """Wrapper for stock ledger report execute function."""
-    from erpnext.stock.report.stock_ledger.stock_ledger import get_items
     from erpnext.stock.report.stock_ledger.stock_ledger import get_stock_ledger_entries
     # from erpnext.stock.report.stock_ledger.stock_ledger import get_item_details
 
     items = get_items(filters)
+    if not items:
+        return []
+
     sl_entries = get_stock_ledger_entries(filters, items)
-
     sl_entries = apply_stock_movement_filters(sl_entries, filters)
-
     return aggregate_stock_ledger_entries(sl_entries)
+
+
+def get_items(filters):
+    from erpnext.stock.report.stock_ledger.stock_ledger import get_item_group_condition
+    item = frappe.qb.DocType("Item")
+    query = frappe.qb.from_(item).select(item.name)
+
+    if item_codes := filters.get("item_code"):
+        query = query.where(item.name.isin(item_codes))
+
+    if brand := filters.get("brand"):
+        query = query.where(item.brand == brand)
+
+    if filters.get("item_group") and (
+        condition := get_item_group_condition(filters.get("item_group"), item)
+    ):
+        query = query.where(condition)
+
+    items = [r[0] for r in query.run()]
+    return items
 
 
 def apply_stock_movement_filters(sl_entries, filters):
