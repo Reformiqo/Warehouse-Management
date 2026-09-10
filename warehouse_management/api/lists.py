@@ -298,8 +298,6 @@ def driver_list(search=None, limit=None, offset=None):
 		if search:
 			filters["full_name"] = ["like", f"%{search}%"]
 
-		print(frappe.session.user, "frappe session user")
-
 		drivers = frappe.get_list(
 			"Driver",
 			filters=filters,
