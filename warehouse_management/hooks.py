@@ -90,7 +90,15 @@ jinja = {
 # ------------
 
 # before_install = "warehouse_management.install.before_install"
-after_install = "warehouse_management.setup.roles.create_roles"
+# a fresh install never runs after_migrate or the patches, so both entry points
+# share one list — the leading underscore keeps it out of frappe's hook registry
+_SETUP = [
+	"warehouse_management.setup.roles.create_roles",
+	"warehouse_management.setup.custom_fields.create_fields",
+	"warehouse_management.setup.property_setters.create_property_setters",
+]
+
+after_install = _SETUP
 
 # Uninstallation
 # ------------
@@ -233,11 +241,7 @@ scheduler_events = {
 # Migration Hooks
 # ---------------
 
-after_migrate = [
-	"warehouse_management.setup.roles.create_roles",
-	"warehouse_management.setup.custom_fields.create_fields",
-	"warehouse_management.setup.property_setters.create_property_setters",
-]
+after_migrate = _SETUP
 
 # Testing
 # -------

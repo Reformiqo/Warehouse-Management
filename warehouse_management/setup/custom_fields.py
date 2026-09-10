@@ -206,3 +206,4 @@ def get_custom_fields():
 
 def create_fields():
 	create_custom_fields(get_custom_fields())
+	frappe.db.commit()
