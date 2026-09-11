@@ -9,7 +9,6 @@ WINDOW_MONTHS = 12
 # the sliders move abc_a_threshold and x_threshold; the upper cut of each pair
 # is pinned, so these bounds keep a slider from crossing it
 ABC_A_RANGE = (0.10, 0.94)
-X_RANGE = (0.05, 0.95)
 
 
 @frappe.whitelist(methods=["GET"])
@@ -18,7 +17,7 @@ def get_abc_xyz(
 	abc_a_threshold=0.80,
 	abc_b_threshold=0.95,
 	x_threshold=0.10,
-	y_threshold=0.95,
+	y_threshold=0.25,
 	include_demand=0,
 ):
 	"""Classify every item sold in the rolling 12-month window as ABC (share
@@ -74,10 +73,6 @@ def _validate_thresholds(thresholds):
 	"""Message for an unusable threshold set, None when they are fine."""
 	if not ABC_A_RANGE[0] <= thresholds["abc_a_threshold"] <= ABC_A_RANGE[1]:
 		return f"abc_a_threshold must be between {ABC_A_RANGE[0]} and {ABC_A_RANGE[1]}."
-
-	if not X_RANGE[0] <= thresholds["x_threshold"] <= X_RANGE[1]:
-		return f"x_threshold must be between {X_RANGE[0]} and {X_RANGE[1]}."
-
 	if not thresholds["abc_a_threshold"] < thresholds["abc_b_threshold"] <= 1:
 		return "abc_b_threshold must be above abc_a_threshold and at most 1."
 
@@ -110,17 +105,20 @@ def _get_month_periods(from_date, to_date):
 
 
 def _get_item_sales(company, from_date, to_date, periods):
-	"""One row per item ordered in the window, holding its sales value and its
+	"""One row per stock item ordered in the window, holding its sales value and its
 	demand quantity bucketed into `periods`. Warehouses are summed together,
 	so an item stocked in several places stays a single row.
 	"""
 	so = frappe.qb.DocType("Sales Order")
 	so_item = frappe.qb.DocType("Sales Order Item")
+	item_master = frappe.qb.DocType("Item")
 
 	rows = (
 		frappe.qb.from_(so)
 		.inner_join(so_item)
 		.on(so_item.parent == so.name)
+		.inner_join(item_master)
+		.on(item_master.name == so_item.item_code)
 		.select(
 			so_item.item_code,
 			so_item.item_name,
@@ -131,6 +129,7 @@ def _get_item_sales(company, from_date, to_date, periods):
 		.where(
 			(so.docstatus == 1)
 			& (so.company == company)
+			& (item_master.is_stock_item == 1)
 			& (so.transaction_date >= from_date)
 			& (so.transaction_date <= to_date)
 		)
