@@ -98,7 +98,11 @@ _SETUP = [
 	"warehouse_management.setup.property_setters.create_property_setters",
 ]
 
-after_install = _SETUP
+# the initial count is seeded on install only: migrate reaches it through
+# patches, and re-running the seed would put reconciled warehouses back to pending
+after_install = _SETUP + [
+	"warehouse_management.setup.initial_reconciliation.seed_initial_reconciliation",
+]
 
 # Uninstallation
 # ------------

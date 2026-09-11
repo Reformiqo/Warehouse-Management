@@ -1,6 +1,7 @@
 """Initial reconciliation — a warehouse's one-off first count.
 
-The assignments are seeded by patches/create_initial_reconciliation_assignments
+The assignments are seeded by setup/initial_reconciliation.py — on install
+through after_install, on existing sites through the patch of the same name —
 and flagged is_initial_reconciliation, one per warehouse and assigned to
 nobody. A user picks a warehouse, lists it with warehouse_items, counts each
 row through set_variation, adds anything the system never knew about with
