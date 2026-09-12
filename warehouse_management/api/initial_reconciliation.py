@@ -233,7 +233,7 @@ def create_initial_stock_reconciliation(assignment_id=None, warehouse=None, item
 		)
 		if not varied:
 			frappe.db.set_value("Warehouse Daily Assignment", assignment_id, {"no_variation": 1})
-			frappe.db.set_value("Warehouse", warehouse, "initial_reconciliation", 1)
+			_mark_reconciled(warehouse)
 			frappe.db.commit()
 
 			return success(data={"no_variation": warehouse})
@@ -244,7 +244,7 @@ def create_initial_stock_reconciliation(assignment_id=None, warehouse=None, item
 		frappe.db.set_value(
 			"Warehouse Daily Assignment", assignment_id, {"stock_reconciliation": name}
 		)
-		frappe.db.set_value("Warehouse", warehouse, "initial_reconciliation", 1)
+		_mark_reconciled(warehouse)
 		frappe.db.commit()
 
 		return success(data={"stock_reconciliation_id": name}, http_status=201)
@@ -309,19 +309,16 @@ def _append_task(assignment, item_code, user_counted):
 	return task
 
 
-def _mark_reconciled(items):
-	"""Flag every warehouse just counted. Already-flagged ones are filtered
-	out rather than rewritten, same as hooks.py does on submit.
-	"""
-	warehouses = list({row["warehouse"] for row in items if row.get("warehouse")})
-	if not warehouses:
-		return
-
+def _mark_reconciled(warehouse):
+	"""Flag the warehouse counted and stamp who did it and when."""
 	frappe.db.set_value(
 		"Warehouse",
-		{"name": ["in", warehouses], "initial_reconciliation": 0},
-		"initial_reconciliation",
-		1,
+		warehouse,
+		{
+			"initial_reconciliation": 1,
+			"initial_reconciliation_by": frappe.session.user,
+			"initial_reconciliation_on": frappe.utils.now(),
+		},
 	)
 
 

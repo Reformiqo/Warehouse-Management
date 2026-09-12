@@ -162,13 +162,10 @@ doc_events = {
 		"after_insert": "warehouse_management.api.profile.invalidate_stats_cache",
 	},
 	"Stock Reconciliation": {
-		"on_submit": [
-			"warehouse_management.api.profile.mark_warehouse_reconciled",
-			(
-				"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
-				".warehouse_item_reconciliation.update_reconciliation"
-			),
-		],
+		"on_submit": (
+			"warehouse_management.warehouse_management.doctype.warehouse_item_reconciliation"
+			".warehouse_item_reconciliation.update_reconciliation"
+		),
 	},
 	"Delivery Trip": {
 		"validate": "warehouse_management.api.delivery_trip.validate_has_stops_or_pickups",

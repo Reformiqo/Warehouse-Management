@@ -4,7 +4,7 @@ No input: the user is taken from the Authorization header, same as logout.
 total_items/total_warehouse only change on Item/Warehouse creation, so
 they're cached and cleared via hooks.py. open_po/open_so and
 initial_reconciliation change on document submits with no single reliable
-hook to chase (see status_updater.py / mark_warehouse_reconciled), so
+hook to chase (see status_updater.py / api/initial_reconciliation.py), so
 they're queried live on each call instead.
 """
 
@@ -137,27 +137,6 @@ def get_cached_stats():
 def invalidate_stats_cache(doc=None, method=None):
 	"""hooks.py doc_events target for Item/Warehouse after_insert."""
 	frappe.cache.delete_value(STATS_CACHE_KEY)
-
-
-def mark_warehouse_reconciled(doc, method=None):
-	"""hooks.py doc_events target for Stock Reconciliation on_submit.
-	initial_reconciliation is set once per warehouse, so the filter
-	skips already-flagged ones instead of rewriting them every submit —
-	which also keeps the by/at stamp on the submit that first counted it.
-	"""
-	warehouses = list({row.warehouse for row in doc.items if row.warehouse})
-	if not warehouses:
-		return
-
-	frappe.db.set_value(
-		"Warehouse",
-		{"name": ["in", warehouses], "initial_reconciliation": 0},
-		{
-			"initial_reconciliation": 1,
-			"initial_reconciliation_by": frappe.session.user,
-			"initial_reconciliation_on": frappe.utils.now(),
-		},
-	)
 
 
 def _role_flags(user):
